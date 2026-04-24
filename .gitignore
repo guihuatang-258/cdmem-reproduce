@@ -163,3 +163,8 @@ cython_debug/
 
 # my
 logs/
+
+data/alfworld/
+data/detectors/
+data/json_2.1.1/
+data/logic/
