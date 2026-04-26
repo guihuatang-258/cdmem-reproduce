@@ -1,16 +1,21 @@
 import yaml
 import importlib
 import alfworld
-import alfworld.agents.environment
+# import alfworld.agents.environment
+from alfworld.agents.environment import get_environment
+
 
 class AlfworldEnv:
     def __init__(self):
         importlib.reload(alfworld)
-        importlib.reload(alfworld.agents.environment)
-        with open('data/alfworld/base_config.yaml') as reader:
+        # importlib.reload(alfworld.agents.environment)
+        # 更改为最新目录
+        with open('data/alfworld/configs/base_config.yaml') as reader:
             config = yaml.safe_load(reader)
-        split = "eval_out_of_distribution"
-        self.env = getattr(alfworld.agents.environment, config["env"]["type"])(config, train_eval=split)
+        # split = "eval_out_of_distribution"
+        # self.env = getattr(alfworld.agents.environment, config["env"]["type"])(config, train_eval=split)
+        env_type = config['env']['type']
+        self.env = get_environment(env_type)(config, train_eval="eval_out_of_distribution")
         self.env = self.env.init_env(batch_size=1)
         self.last_action = None
         

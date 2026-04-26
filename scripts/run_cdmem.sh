@@ -1,11 +1,10 @@
 source ./set_api.sh
-
 cd ..
 python src/main.py \
-        --num_trials 5 \
-        --num_envs 134 \
+        --num_trials 3 \
+        --num_envs 3 \
         --run_name "cdmem" \
-        --model "gpt-4o-mini"  \
+        --model "qwen/qwen3-235b-a22b"  \
         --agent "cdmem"   \
         --env "alfworld" \
         # --is_vector

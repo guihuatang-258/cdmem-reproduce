@@ -1,11 +1,8 @@
-source ./set_api.sh
-
-cd ..
 python src/main.py \
         --num_trials 5 \
         --num_envs 134 \
         --run_name "reflexion_logs_t5e67" \
-        --model "gpt-4o-mini"  \
+        --model "qwen/qwen3.5-flash-02-23"  \
         --agent "reflect"   \
         --env "alfworld" \
         # --is_resume \

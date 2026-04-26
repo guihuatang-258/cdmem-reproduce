@@ -1,4 +1,5 @@
 import numpy as np
+# import alfworld.agents.environment as environment
 from alfworld.agents.environment import get_environment
 import alfworld.agents.modules.generic as generic
 
@@ -17,6 +18,7 @@ env_type = config['env']['type'] # 'AlfredTWEnv' or 'AlfredThorEnv' or 'AlfredHy
 print(env_type)
 
 # setup environment
+# env = getattr(environment, env_type)(config, train_eval="eval_out_of_distribution")
 env = get_environment(env_type)(config, train_eval="eval_out_of_distribution")
 env = env.init_env(batch_size=1)
 

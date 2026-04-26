@@ -12,6 +12,7 @@ from typing import Any, List, Dict
 
 def get_args():
     parser = argparse.ArgumentParser()
+    # 定义调用开始运行时的参数名
     parser.add_argument("--num_trials", type=int, help="The number of trials to run")
     parser.add_argument("--num_envs", type=int, help="The number of environments per trial")
     parser.add_argument("--max_steps", type=int, help="he number of steps per trajectory", default=20)
@@ -42,7 +43,8 @@ def main(args):
         logging_dir = os.path.join('./logs/', args.run_name + '_' + timestamp)
         if not os.path.exists(logging_dir):
             os.makedirs(logging_dir)
-    
+    # 兼容openrouter格式
+    model_prefix = args.model.split('/')[0] if '/' in args.model else args.model.split('-')[0]
     agent = AGENT[args.env][args.agent](
                             num_trials = args.num_trials,
                             num_envs = args.num_envs,
@@ -51,7 +53,7 @@ def main(args):
                             model = args.model,
                             start_trial_num = args.start_trial_num,
                             env = ENV[args.env],
-                            llm_wrapper=LLM_WRAPPER[args.model.split('-')[0]],
+                            llm_wrapper=LLM_WRAPPER[model_prefix],
                             short_memory = SHORT_MEMORY[args.env][args.agent],
                             local_memory = LOCAL_MEMORY[args.env][args.agent],
                             global_memory = GLOBAL_MEMORY[args.env][args.agent],
