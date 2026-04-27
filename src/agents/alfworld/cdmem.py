@@ -6,25 +6,27 @@ import itertools
 
 from typing import List, Callable
 
+
 class CDMemAgent:
     """
     CDMem Agent class.
     """
-    def __init__(self, 
+
+    def __init__(self,
                  num_trials,
                  num_envs,
                  max_steps,
-                 logging_dir, 
-                 env, 
-                 llm_wrapper, 
-                 model, 
+                 logging_dir,
+                 env,
+                 llm_wrapper,
+                 model,
                  start_trial_num,
-                 short_memory, 
-                 local_memory, 
+                 short_memory,
+                 local_memory,
                  global_memory,
-                 prompt_builder, 
-                 fewshot_builder, 
-                 *args, 
+                 prompt_builder,
+                 fewshot_builder,
+                 *args,
                  **kwargs):
         self.num_trials = num_trials
         self.num_envs = num_envs
@@ -41,8 +43,9 @@ class CDMemAgent:
         self.global_memory = global_memory(logging_dir, self.is_vector)
         self.prompt_builder = prompt_builder()
         self.fewshot_builder = fewshot_builder()
-        self.logger = Logger(self.logging_dir, self.num_trials, self.num_envs, self.start_trial_num, self.local_memory, self.global_memory)
-    
+        self.logger = Logger(self.logging_dir, self.num_trials, self.num_envs,
+                             self.start_trial_num, self.local_memory, self.global_memory)
+
     def run(self):
         # 总共运行num_trails个回合，如果是resume，则从start_trial_num开始
         for trial_idx in range(self.start_trial_num, self.num_trials):
@@ -59,8 +62,9 @@ class CDMemAgent:
                     self.logger.log_world_success(trial_idx, env_idx)
                     self.logger.log_trial_success(trial_idx, env_idx)
                     continue
-                # 开始跑游戏轨迹
+                # 开始跑整条轨迹
                 history_log, is_success = self.run_trajectory(env_idx, init_ob)
+                # 如果成功了，记录成功，否则记录失败。无论成功与否都更新本地和全局记忆，并记录日志
                 if is_success:
                     self.logger.log_world_success(trial_idx, env_idx)
                     self.local_memory.set_success(env_idx)
@@ -68,16 +72,21 @@ class CDMemAgent:
                     num_additional_successes += 1
                 else:
                     self.logger.log_world_fail(trial_idx, env_idx)
-                self.logger.log_trial_content(history_log, is_success, trial_idx, env_idx)
-                expert_trajectory = self.update_local_memory(history_log, is_success, env_idx)
+                self.logger.log_trial_content(
+                    history_log, is_success, trial_idx, env_idx)
+                # 更新local memory和global memory并记录日志
+                expert_trajectory = self.update_local_memory(
+                    history_log, is_success, env_idx)
                 self.logger.log_local_memory(trial_idx)
-                self.update_global_memory(expert_trajectory, env_idx, trial_idx)
+                self.update_global_memory(
+                    expert_trajectory, env_idx, trial_idx)
                 self.logger.log_global_memory(trial_idx)
             self.env.close()
             # self.logger.log_trial_end(trial_idx, num_successes, num_additional_successes)
-            self.logger.log_world_end(trial_idx, num_successes, num_additional_successes)
+            self.logger.log_world_end(
+                trial_idx, num_successes, num_additional_successes)
             self.env.reload()
-    
+
     def run_trajectory(self, env_idx, init_ob, to_print=True):
         cur_step = 0
         print(init_ob)
@@ -85,7 +94,8 @@ class CDMemAgent:
         # 循环直到游戏结束或耗尽最大step数
         while cur_step < self.max_steps:
             infer_prompt = self.build_infer_prompt(env_idx, init_ob)
-            # print("<⚠️Whole infer prompt⚠️>:"+ infer_prompt[:200] + "<⚠️End⚠️>") # 查看完整的prompt
+            print("<⚠️Infer Prompt⚠️>:" +
+                  infer_prompt[-200:] + "<⚠️End⚠️>")  # 查看完整的prompt
             # 用大模型输出当前动作
             # 此处无system prompt
             action = self.llm(infer_prompt, stop=["\n"]).strip()
@@ -97,9 +107,9 @@ class CDMemAgent:
             observation, reward, done, exhausted, info = self.env.step(action)
             self.short_memory.add("observation", observation)
             if to_print:
-                # print(f'<🏃Action>: {action}\n<🏃End>')
-                # print(f'<🌎Observation>: {observation}\n<🌎End>')
-                sys.stdout.flush() # 确保立即打印
+                print(f'<🏃Action> {action}\n<🏃End>')
+                print(f'<🌎Observation> {observation} <🌎End>')
+                sys.stdout.flush()  # 确保立即打印
             if done:
                 history_log = self.build_infer_prompt(env_idx, init_ob)
                 return history_log, True
@@ -112,109 +122,119 @@ class CDMemAgent:
             cur_step += 1
         history_log = self.build_infer_prompt(env_idx, init_ob)
         return history_log, False
-    
+
     def update_local_memory(self, history_log, is_success, env_idx):
         if not self.local_memory.is_skip(env_idx):
             expert_prompt = self.build_expert_prompt(history_log)
-            expert_result = self.llm(expert_prompt, max_tokens=512) 
-            reflection_prompt = self.build_reflection_prompt(history_log, is_success, expert_result, env_idx)
-            reflection_result = self.llm(reflection_prompt, max_tokens=512) 
-            expert_trajectory = self.process_after_reflection(expert_result, reflection_result, history_log, is_success)
+            expert_result = self.llm(expert_prompt, max_tokens=512)
+            reflection_prompt = self.build_reflection_prompt(
+                history_log, is_success, expert_result, env_idx)
+            reflection_result = self.llm(reflection_prompt, max_tokens=512)
+            expert_trajectory = self.process_after_reflection(
+                expert_result, reflection_result, history_log, is_success)
             self.local_memory.add(env_idx, expert_trajectory)
         return expert_trajectory
-            
+
     def update_global_memory(self, expert_trajectory, env_idx, trial_idx):
         env_summary = task_summary = ''
-        env_query, task_query = self.build_summary_prompt(expert_trajectory, env_idx, trial_idx)
+        env_query, task_query = self.build_summary_prompt(
+            expert_trajectory, env_idx, trial_idx)
         if env_query:
-            env_summary = self.llm(env_query, max_tokens=512) 
+            env_summary = self.llm(env_query, max_tokens=512)
             self.global_memory.add(env_summary, expert_trajectory, mode='env')
         if task_query:
-            task_summary = self.llm(task_query, max_tokens=512) 
-            self.global_memory.add(task_summary, expert_trajectory, mode='task')
+            task_summary = self.llm(task_query, max_tokens=512)
+            self.global_memory.add(
+                task_summary, expert_trajectory, mode='task')
 
     def build_infer_prompt(self, env_idx, init_ob):
         """
         构建推理时发送给 LLM 的提示（prompt）
-        
+
         该函数整合了三种记忆系统（短时记忆、本地记忆、全局记忆）和少样本示例，
         为当前任务生成一个完整的上下文提示，帮助 LLM 做出最优决策。
-        
+
         Args:
             env_idx (int): 环境索引，标识当前是哪个并行环境
             init_ob (str): 初始观察，包含环境描述和任务描述
-        
+
         Returns:
             str: 组装完成的推理提示，发送给 LLM 进行动作预测
         """
         # 1. 从短时记忆中召回当前轨迹的交互历史（action-observation 对）
         short_memories = self.short_memory.recall()
-        
+
         # 2. 从本地记忆中召回该环境的历史反思记录
         local_memories = self.local_memory.recall(env_idx)
         # 限制最多保留最近 3 条反思，避免 prompt 过长
         if len(local_memories) > 3:
             local_memories = local_memories[-3:]
-        
+
         # 3. 解析初始观察，提取环境描述和任务描述
         env_description, task_description = self.process_before_infer(init_ob)
-        
+
         # 4. 从全局记忆中召回：
         #    - known_obs_history: 已知观察历史（容器功能、物品位置等）
         #    - action_guidance_history: 行动指导（过去成功/失败的经验总结）
-        known_obs_history, action_guidance_history = self.global_memory.recall(env_description, task_description)
-        
+        known_obs_history, action_guidance_history = self.global_memory.recall(
+            env_description, task_description)
+
         # 5. 获取少样本示例（few-shot examples）
         #    - 优先从全局记忆中检索相似任务的成功轨迹
         #    - 如果没有则使用默认示例
         fewshots = self.fewshot_builder.get_inference_fewshots(
-            self.env.name, 
+            self.env.name,
             env_description,
-            task_description, 
-            self.global_memory, 
+            task_description,
+            self.global_memory,
             self.logging_dir
         )
-        
+
         # 6. 使用 prompt_builder 将所有组件组装成最终的推理提示
         #    包含：角色定义、指令说明、少样本示例、容器功能、行动指导、
         #         历史反思、任务描述、当前交互轨迹
         query = self.prompt_builder.get_inference_prompts(
-            init_ob, 
-            fewshots, 
-            local_memories, 
-            short_memories, 
-            known_obs_history, 
+            init_ob,
+            fewshots,
+            local_memories,
+            short_memories,
+            known_obs_history,
             action_guidance_history
         )
-        
+
         return query
-    
+
     def build_expert_prompt(self, history_log):
         fewshots = self.fewshot_builder.get_expert_fewshots()
         query = self.prompt_builder.get_expert_prompts(history_log, fewshots)
         return query
-        
+
     def build_reflection_prompt(self, history_log, is_success, expert_result, env_idx):
         local_memories = self.local_memory.recall(env_idx)
         if len(local_memories) > 3:
             local_memories = local_memories[-3:]
         fewshots = self.fewshot_builder.get_reflection_fewshots(is_success)
-        query = self.prompt_builder.get_reflection_prompts(history_log, is_success, fewshots, local_memories, expert_result)
+        query = self.prompt_builder.get_reflection_prompts(
+            history_log, is_success, fewshots, local_memories, expert_result)
         return query
-    
+
     def build_summary_prompt(self, expert_trajectory, env_idx, trial_idx):
         env_query = task_query = ''
         increment_env, increment_task = \
-                self.global_memory.short2long(expert_trajectory, env_idx, trial_idx)
+            self.global_memory.short2long(
+                expert_trajectory, env_idx, trial_idx)
         is_success = expert_trajectory['is_success']
         if len(increment_env) != 0:
             env_fewshots = self.fewshot_builder.get_summary_fewshots('env')
-            env_query = self.prompt_builder.env_summary_prompts(increment_env, env_fewshots)
+            env_query = self.prompt_builder.env_summary_prompts(
+                increment_env, env_fewshots)
         if len(increment_task) != 0:
-            task_fewshots = self.fewshot_builder.get_summary_fewshots('task', is_success)
-            task_query = self.prompt_builder.task_summary_prompts(increment_task, task_fewshots, is_success)
+            task_fewshots = self.fewshot_builder.get_summary_fewshots(
+                'task', is_success)
+            task_query = self.prompt_builder.task_summary_prompts(
+                increment_task, task_fewshots, is_success)
         return env_query, task_query
-    
+
     def process_after_reflection(self, expert_result, reflection_result, history_log, is_success):
         scenario = history_log.split("Here is the task:")[-1].strip()
         env_pattern = r'You are in the middle of a room\..*?(?=\n)'
@@ -224,9 +244,9 @@ class CDMemAgent:
         action_pattern = r'Expert Actions:(.*)'
         reflection_pattern = r'Reflection: (.*?)(?:\n|$)'
 
-        env_description = task_description  = ''
+        env_description = task_description = ''
         location = function = action = reflection = ''
-        
+
         env_match = re.search(env_pattern, scenario, re.DOTALL)
         if env_match:
             env_description = env_match.group(0).strip()
@@ -247,21 +267,22 @@ class CDMemAgent:
         if action_match:
             action = action_match.group(1).strip()
 
-        reflection_match = re.search(reflection_pattern, reflection_result, re.DOTALL)
+        reflection_match = re.search(
+            reflection_pattern, reflection_result, re.DOTALL)
         if reflection_match:
             reflection = reflection_match.group(1).strip()
 
         expert_trajectory = dict(env=env_description,
-                             task=task_description,
-                             location=location,
-                             function=function,
-                             action=action,
-                             reflection=reflection,
-                             is_success=is_success
-                             )
+                                 task=task_description,
+                                 location=location,
+                                 function=function,
+                                 action=action,
+                                 reflection=reflection,
+                                 is_success=is_success
+                                 )
         return expert_trajectory
-    
-    def process_before_infer(self, init_ob): 
+
+    def process_before_infer(self, init_ob):
         env_description = task_description = ''
         env_pattern = r'You are in the middle of a room\..*?(?=\n)'
         task_pattern = r'Your task is to:\s*(.*)'
@@ -273,9 +294,9 @@ class CDMemAgent:
         task_match = re.search(task_pattern, init_ob, re.DOTALL)
         if task_match:
             task_description = task_match.group(1).strip()
-        
+
         return env_description, task_description
-    
+
 
 class Logger:
     def __init__(self, logging_dir, num_trials, num_envs, start_trial_num, local_memory, global_memory):
@@ -285,51 +306,56 @@ class Logger:
         self.local_memory = local_memory
         self.global_memory = global_memory
         self.world_log_path = os.path.join(self.logging_dir, 'world.log')
-        self.trial_log_paths = [os.path.join(self.logging_dir, f'trial_{trial_idx}.log') for trial_idx in range(self.num_trials)]
-        self.local_memory_paths = [os.path.join(self.logging_dir, f'local_memory_trial_{trial_idx}.json') for trial_idx in range(self.num_trials)]
-        self.global_env_paths = [os.path.join(self.logging_dir, f'global_env_trial_{trial_idx}.json') for trial_idx in range(self.num_trials)]
-        self.global_task_paths = [os.path.join(self.logging_dir, f'global_task_trial_{trial_idx}.json') for trial_idx in range(self.num_trials)]
-        for path in list(itertools.chain(self.trial_log_paths[start_trial_num:], self.local_memory_paths[start_trial_num:], 
-                                            self.global_env_paths[start_trial_num:], self.global_task_paths[start_trial_num:])):
+        self.trial_log_paths = [os.path.join(
+            self.logging_dir, f'trial_{trial_idx}.log') for trial_idx in range(self.num_trials)]
+        self.local_memory_paths = [os.path.join(
+            self.logging_dir, f'local_memory_trial_{trial_idx}.json') for trial_idx in range(self.num_trials)]
+        self.global_env_paths = [os.path.join(
+            self.logging_dir, f'global_env_trial_{trial_idx}.json') for trial_idx in range(self.num_trials)]
+        self.global_task_paths = [os.path.join(
+            self.logging_dir, f'global_task_trial_{trial_idx}.json') for trial_idx in range(self.num_trials)]
+        for path in list(itertools.chain(self.trial_log_paths[start_trial_num:], self.local_memory_paths[start_trial_num:],
+                                         self.global_env_paths[start_trial_num:], self.global_task_paths[start_trial_num:])):
             if os.path.exists(path):
                 open(path, 'w').close()
-                
+
     def log_world_start(self, trial_idx):
         with open(self.world_log_path, 'a') as wf:
             wf.write(f'\n\n***** Start Trial #{trial_idx} *****\n\n')
-            
+
     def log_world_success(self, trial_idx, env_idx):
         with open(self.world_log_path, 'a') as wf:
             wf.write(f'Environment #{env_idx} Trial #{trial_idx}: SUCCESS\n')
-            
+
     def log_world_fail(self, trial_idx, env_idx):
         with open(self.world_log_path, 'a') as wf:
-            wf.write(f'Environment #{env_idx} Trial #{trial_idx}: FAIL\n')  
-            
+            wf.write(f'Environment #{env_idx} Trial #{trial_idx}: FAIL\n')
+
     def log_world_end(self, trial_idx, num_successes, num_additional_successes):
         log_str = self._get_stats_str(num_successes, num_additional_successes)
         with open(self.world_log_path, 'a') as wf:
             wf.write(log_str + '\n')
             wf.write(f'\n\n***** End Trial #{trial_idx} *****\n\n')
-    
+
     def log_trial_success(self, trial_idx, env_idx):
         with open(self.trial_log_paths[trial_idx], 'a') as wf:
             wf.write(f'\n#####\n\nEnvironment #{env_idx}: Success\n\n#####\n')
-            
+
     def log_trial_content(self, content, is_success, trial_idx, env_idx):
         with open(self.trial_log_paths[trial_idx], 'a') as wf:
-            wf.write(f'\n#####\n\nEnvironment #{env_idx}:\n{content}\n\nSTATUS: {"OK" if is_success else "FAIL"}\n\n#####\n')
-    
+            wf.write(
+                f'\n#####\n\nEnvironment #{env_idx}:\n{content}\n\nSTATUS: {"OK" if is_success else "FAIL"}\n\n#####\n')
+
     def log_local_memory(self, trial_idx):
         with open(self.local_memory_paths[trial_idx], 'w') as wf:
             json.dump(self.local_memory.history, wf, indent=4)
-            
+
     def log_global_memory(self, trial_idx):
         with open(self.global_env_paths[trial_idx], 'w') as wf:
             json.dump(self.global_memory.env_memory, wf, indent=4)
         with open(self.global_task_paths[trial_idx], 'w') as wf:
             json.dump(self.global_memory.task_memory, wf, indent=4)
-            
+
     def _get_stats_str(self, num_successes, num_additional_successes):
         log_str: str = f"""
 -----
@@ -340,4 +366,3 @@ TOTAL: {self.num_envs}
 ACCURACY: {round(num_successes / self.num_envs, 2)}
 -----"""
         return log_str
-        

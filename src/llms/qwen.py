@@ -106,7 +106,7 @@ class QwenWrapper:
 
             )
             content = response.choices[0].message.content
-            print(f'<🏃ModelOutput>: {content}\n<🏃End>')
+            # print(f'<🏃ModelOutput>: {content}\n<🏃End>')
             return content if content is not None else ""
 
     @retry(wait=wait_random_exponential(min=1, max=60), stop=stop_after_attempt(6))

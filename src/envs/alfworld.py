@@ -14,14 +14,17 @@ class AlfworldEnv:
             config = yaml.safe_load(reader)
         # split = "eval_out_of_distribution"
         # self.env = getattr(alfworld.agents.environment, config["env"]["type"])(config, train_eval=split)
-        env_type = config['env']['type'] # 本实验使用AlfredTWEnv，即TextWorld纯文字实验
-        self.env = get_environment(env_type)(config, train_eval="eval_out_of_distribution")
+        env_type = config['env']['type']  # 本实验使用AlfredTWEnv，即TextWorld纯文字实验
+        self.env = get_environment(env_type)(
+            config, train_eval="eval_out_of_distribution")
         self.env = self.env.init_env(batch_size=1)
         self.last_action = None
-        
+
     def step(self, action):
         observation, reward, done, info = self.env.step([action])
-        observation, reward, done = process_ob(observation[0]), info['won'][0], done[0]
+        observation, reward, done = process_ob(
+            observation[0]), info['won'][0], done[0]
+        # 如果当前动作是以'think:'开头的思考动作，则观察结果为'OK.'，奖励不变，游戏继续进行
         if action.startswith('think:'):
             observation = 'OK.'
         exhausted = False
@@ -30,20 +33,20 @@ class AlfworldEnv:
         else:
             self.last_action = action
         return observation, reward, done, exhausted, info
-    
+
     def reset(self):
         self.last_action = None
         ob, info = self.env.reset()
         ob = '\n'.join(ob[0].split('\n\n')[1:])
         self.name = '/'.join(info['extra.gamefile'][0].split('/')[-3:-1])
         return ob, info
-    
+
     def reload(self):
         self.__init__()
-    
+
     def close(self):
         self.env.close()
-        
+
     def action_parser(self, action):
         if ">" in action:
             action = action.replace(">", "").strip()
@@ -59,5 +62,5 @@ class AlfworldEnv:
 
 def process_ob(ob):
     if ob.startswith('You arrive at loc '):
-        ob = ob[ob.find('. ')+2:]    
+        ob = ob[ob.find('. ')+2:]
     return ob

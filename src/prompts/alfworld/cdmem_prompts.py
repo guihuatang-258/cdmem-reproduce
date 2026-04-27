@@ -1,10 +1,11 @@
 import re
 
+
 class CDMemPromptBuilder:
     def __init__(self):
         pass
-    
-    def get_inference_prompts(self, init_ob, fewshots, local_memories, short_memories, known_obs_history, action_guidance_history):        
+
+    def get_inference_prompts(self, init_ob, fewshots, local_memories, short_memories, known_obs_history, action_guidance_history):
         query = f"""
 Role: As an expert in indoor navigation and manipulation, you can efficiently encode, memorize, and retrieve experiences based on action trajectories of exploration and manipulation. Thus you can rapidly adapt to new environments and efficiently complete tasks. 
 
@@ -14,7 +15,7 @@ Exemplars: There are two exemplars to help you better understand how to interact
 
 {fewshots}
 
-Goal Task: Now, based on the task background, task instruction, reference exemplars, functions of containers, locations of items and past reflections to output the correct action.
+Goal Task: Now, based on the task background, task instruction, reference exemplars, functions of containers, locations of items and past reflections to output the correct action. An action starts with a ">". You only output ONE action at a time.
 """
         if known_obs_history:
             query += f"\nFunctions of Containers: {known_obs_history}"
@@ -27,11 +28,11 @@ Goal Task: Now, based on the task background, task instruction, reference exempl
         query += f"""
 
 Here is the task:
-<🔍InitObservation>{init_ob}</🔍InitObservation><📓ShortMemories>{short_memories}</📓ShortMemories>
+{init_ob}{short_memories}
 """
-        return query 
-    
-    def get_expert_prompts(self, history_log, fewshots): 
+        return query
+
+    def get_expert_prompts(self, history_log, fewshots):
         scenario = history_log.split("Here is the task:")[-1].strip()
         query = f"""
 Role: As an expert in indoor navigation and manipulation, you can efficiently encode, memorize, and retrieve experiences based on action trajectories of exploration and manipulation. Thus you can rapidly adapt to new environments and efficiently complete tasks. 
@@ -54,25 +55,26 @@ Goal Task: Now, based on the task background, task instruction, and reference ex
 
 Expert Observations:
 Expert Actions: 
-        """ 
+        """
         return query
-                
+
     def get_reflection_prompts(self, history_log, is_success, fewshots, local_memories, expert_result):
-        locations, functions, expert_actions = self._parser_expert_result(expert_result)
+        locations, functions, expert_actions = self._parser_expert_result(
+            expert_result)
         expert_observations = f'''(1){locations}(2){functions}'''
         scenario = history_log.split("Here is the task:")[-1].strip()
         query: str = f"""
 Role: As an expert in indoor navigation and manipulation, you can efficiently encode, memorize, and retrieve experiences based on action trajectories of exploration and manipulation and environmental observations. Thus you can rapidly adapt to new environments and efficiently complete tasks.
 
-Instruction: {"You have successfully completed the task. Given the environment, task, action trajectories, and expert actions(summary of action trajectories), you need to reflect on the key actions that are critical to completing the task, which means that eliminating any of these actions would affect the completion of the task. " 
-if is_success else
-'''You were unsuccessful in completing the task. Given the environment, task, action trajectories, expert observations(location of items and functions of containers. items refer to mug, lettuce, bread, alarm clock, etc; containers refer to drawer, shelf, sinkbasin, fridge, etc), expert actions(summary of action trajectories), and past reflections(reflections you made in past trials) you must first consider what types of failure you meet and output corresponding reflections.
+Instruction: {"You have successfully completed the task. Given the environment, task, action trajectories, and expert actions(summary of action trajectories), you need to reflect on the key actions that are critical to completing the task, which means that eliminating any of these actions would affect the completion of the task. "
+              if is_success else
+              '''You were unsuccessful in completing the task. Given the environment, task, action trajectories, expert observations(location of items and functions of containers. items refer to mug, lettuce, bread, alarm clock, etc; containers refer to drawer, shelf, sinkbasin, fridge, etc), expert actions(summary of action trajectories), and past reflections(reflections you made in past trials) you must first consider what types of failure you meet and output corresponding reflections.
 There are three types of failure:
 Planning Failure: The task planning have issues, such as missing steps or misunderstandings.  Output the reflection of current planning issues and the correct plan. 
 Search Failure: Continuously searching for an item but unable to find it. Output the item's location already searched and the reflection of the future search plan. For example, if you tried A and B but forgot C, devise a plan to achieve C with environment-specific actions. 
 Operation Failure: The expected feedback was not received after performing the action, such as returning with "nothing happens," which means the current observation doesn't match the current action. For example, attempting to take something from cabinet 1 while at the location of cabinet 4 and then returning "nothing happens." Output the reflection of the failed reason and correct actions.
 '''
-}
+              }
 
 Exemplars: There are {"two" if is_success else "three"} exemplars to help you better understand the reflection you should make.
 
@@ -102,12 +104,12 @@ Expert Observations:{expert_observations}
             for i, m in enumerate(local_memories):
                 query += f'Trial #{i}: {m}\n'
 
-        query +=f"""
+        query += f"""
 *** Reflection Result***
 Your reflection here, please start with: Reflection:
 """
         return query
-    
+
     def env_summary_prompts(self, known_obs_history, env_fewshots):
         known_obs = known_obs_history['known_obs']
         increment_known_obs = known_obs_history['increment_known_obs']
@@ -121,7 +123,7 @@ Exemplars: There are two exemplars to help you better understand the summary you
 {env_fewshots}
 
 """
-        
+
         query += f"""Goal Task: Now, based on the task background, task instruction, reference exemplars, and past summary, you need to complete the task and give your new summary:"""
         query += f"""
         
@@ -131,14 +133,14 @@ Exemplars: There are two exemplars to help you better understand the summary you
         for i, m in enumerate(increment_known_obs):
             query += f'Expert Observation #{i}: {m}\n'
         if known_obs:
-                    query += f"""Past Summary:{known_obs}"""
+            query += f"""Past Summary:{known_obs}"""
         query += f"""
         
 *** Summary Result***
 
 """
         return query
-        
+
     def task_summary_prompts(self, action_guidance_history, task_fewshots, is_success):
         action_guidance = action_guidance_history['action_guidance']
         increment_action_guidance = action_guidance_history['increment_action_guidance']
@@ -169,19 +171,21 @@ Experience #{i}:\n{experience}\n"""
         query += f"""
         
 ***Summary Result***
-""" 
+"""
         return query
-    
+
     def _parser_expert_result(self, expert_result):
         location = function = action = ''
-        location_match = re.search(r'\(1\)locations:(.*?)\(2\)functions:', expert_result, re.DOTALL)
-        function_match = re.search(r'\(2\)functions:(.*?)Expert Actions:', expert_result, re.DOTALL)
-        action_match = re.search(r'Expert Actions:(.*)', expert_result, re.DOTALL)
+        location_match = re.search(
+            r'\(1\)locations:(.*?)\(2\)functions:', expert_result, re.DOTALL)
+        function_match = re.search(
+            r'\(2\)functions:(.*?)Expert Actions:', expert_result, re.DOTALL)
+        action_match = re.search(
+            r'Expert Actions:(.*)', expert_result, re.DOTALL)
         if location_match:
-            location = location_match.group(1).strip() 
+            location = location_match.group(1).strip()
         if function_match:
-            function = function_match.group(1).strip() 
+            function = function_match.group(1).strip()
         if action_match:
             action = action_match.group(1).strip()
         return location, function, action
-        
