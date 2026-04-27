@@ -7,10 +7,19 @@ import chromadb
 from chromadb.config import Settings
 
 class ShortMemory:
+    """短期记忆类，用于存储和回忆智能体的交互历史"""
+    
     def __init__(self) -> None:
+        """初始化短期记忆，创建空的历史记录列表"""
         self.history: List[Dict[str, str]] = []
 
     def add(self, label: str, value: str) -> None:
+        """添加一条交互记录到历史中
+        
+        Args:
+            label: 记录类型，只能是 'action'（动作）或 'observation'（观察）
+            value: 记录的具体内容
+        """
         assert label in ['action', 'observation']
         self.history += [{
             'label': label,
@@ -18,17 +27,28 @@ class ShortMemory:
         }]
 
     def reset(self) -> None:
+        """清空所有历史记录"""
         self.history = []
 
     def recall(self, with_think: bool = True) -> str:
+        """回忆并格式化历史记录
+        
+        Args:
+            with_think: 是否包含思考（think）类型的动作，默认为 True
+            
+        Returns:
+            格式化后的历史记录字符串，动作以 '>' 开头，观察直接显示
+        """
         s: str = '\n'
         for i, item in enumerate(self.history):
             if item['label'] == 'action':
+                # 如果不包含思考且当前动作以 'think:' 开头，则跳过
                 if not with_think and item["value"].startswith('think:'):
                     continue
-                s += f'> {item["value"]}'
+                s += f'> Action: {item["value"]} <\Action End>' # TODO: prompt要改回去
             elif item['label'] == 'observation':
-                s += item['value']
+                s += f'> Obs: {item["value"]} <\Obs End>'
+            # 如果不是最后一条记录，添加换行符
             if i != len(self.history) - 1:
                 s += '\n'
         return s

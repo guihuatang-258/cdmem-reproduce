@@ -27,7 +27,7 @@ Goal Task: Now, based on the task background, task instruction, reference exempl
         query += f"""
 
 Here is the task:
-{init_ob}{short_memories}
+<🔍InitObservation>{init_ob}</🔍InitObservation><📓ShortMemories>{short_memories}</📓ShortMemories>
 """
         return query 
     

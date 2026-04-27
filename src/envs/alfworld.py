@@ -14,7 +14,7 @@ class AlfworldEnv:
             config = yaml.safe_load(reader)
         # split = "eval_out_of_distribution"
         # self.env = getattr(alfworld.agents.environment, config["env"]["type"])(config, train_eval=split)
-        env_type = config['env']['type']
+        env_type = config['env']['type'] # 本实验使用AlfredTWEnv，即TextWorld纯文字实验
         self.env = get_environment(env_type)(config, train_eval="eval_out_of_distribution")
         self.env = self.env.init_env(batch_size=1)
         self.last_action = None
@@ -50,6 +50,7 @@ class AlfworldEnv:
         action_words = action.split(" ")
         if "put" in action_words:
             for i in range(len(action_words)):
+                # 将in和on统一替换为in/on，可以减少动作空间，提高成功率
                 if action_words[i].strip().lower() == "in" or action_words[i].strip().lower() == 'on':
                     action_words[i] = "in/on"
                     action = " ".join(action_words)

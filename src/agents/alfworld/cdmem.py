@@ -44,18 +44,22 @@ class CDMemAgent:
         self.logger = Logger(self.logging_dir, self.num_trials, self.num_envs, self.start_trial_num, self.local_memory, self.global_memory)
     
     def run(self):
+        # 总共运行num_trails个回合，如果是resume，则从start_trial_num开始
         for trial_idx in range(self.start_trial_num, self.num_trials):
             self.logger.log_world_start(trial_idx)
             num_successes: int = 0
             num_additional_successes: int = 0
+            # 对每个环境运行
             for env_idx in range(self.num_envs):
                 init_ob, info = self.env.reset()
                 print(f"{env_idx} using {self.env.name}")
+                # 如果当前环境成功了，直接跳过运行
                 if self.local_memory.is_success(env_idx):
                     num_successes += 1
                     self.logger.log_world_success(trial_idx, env_idx)
                     self.logger.log_trial_success(trial_idx, env_idx)
                     continue
+                # 开始跑游戏轨迹
                 history_log, is_success = self.run_trajectory(env_idx, init_ob)
                 if is_success:
                     self.logger.log_world_success(trial_idx, env_idx)
@@ -78,22 +82,31 @@ class CDMemAgent:
         cur_step = 0
         print(init_ob)
         self.short_memory.reset()
+        # 循环直到游戏结束或耗尽最大step数
         while cur_step < self.max_steps:
             infer_prompt = self.build_infer_prompt(env_idx, init_ob)
+            # print("<⚠️Whole infer prompt⚠️>:"+ infer_prompt[:200] + "<⚠️End⚠️>") # 查看完整的prompt
+            # 用大模型输出当前动作
+            # 此处无system prompt
             action = self.llm(infer_prompt, stop=["\n"]).strip()
+            # print(f'<🏃Action>: {action}\n<🏃End>')
+            # 解析动作，清楚多余的标记及统一动作
             action = self.env.action_parser(action)
+            # 没走一步，把action和observation加入short memory
             self.short_memory.add("action", action)
             observation, reward, done, exhausted, info = self.env.step(action)
             self.short_memory.add("observation", observation)
             if to_print:
-                print(f'> {action}\n{observation}')
-                sys.stdout.flush()
+                # print(f'<🏃Action>: {action}\n<🏃End>')
+                # print(f'<🌎Observation>: {observation}\n<🌎End>')
+                sys.stdout.flush() # 确保立即打印
             if done:
                 history_log = self.build_infer_prompt(env_idx, init_ob)
                 return history_log, True
             elif exhausted:
                 history_log = self.build_infer_prompt(env_idx, init_ob)
                 return history_log, False
+            # 如果当前动作仅为大模型思考，则不作为一个step
             if action.startswith('think:'):
                 continue
             cur_step += 1
@@ -121,14 +134,59 @@ class CDMemAgent:
             self.global_memory.add(task_summary, expert_trajectory, mode='task')
 
     def build_infer_prompt(self, env_idx, init_ob):
+        """
+        构建推理时发送给 LLM 的提示（prompt）
+        
+        该函数整合了三种记忆系统（短时记忆、本地记忆、全局记忆）和少样本示例，
+        为当前任务生成一个完整的上下文提示，帮助 LLM 做出最优决策。
+        
+        Args:
+            env_idx (int): 环境索引，标识当前是哪个并行环境
+            init_ob (str): 初始观察，包含环境描述和任务描述
+        
+        Returns:
+            str: 组装完成的推理提示，发送给 LLM 进行动作预测
+        """
+        # 1. 从短时记忆中召回当前轨迹的交互历史（action-observation 对）
         short_memories = self.short_memory.recall()
+        
+        # 2. 从本地记忆中召回该环境的历史反思记录
         local_memories = self.local_memory.recall(env_idx)
+        # 限制最多保留最近 3 条反思，避免 prompt 过长
         if len(local_memories) > 3:
             local_memories = local_memories[-3:]
+        
+        # 3. 解析初始观察，提取环境描述和任务描述
         env_description, task_description = self.process_before_infer(init_ob)
-        known_obs_history, action_guidance_history = self.global_memory.recall(env_description , task_description)
-        fewshots = self.fewshot_builder.get_inference_fewshots(self.env.name, env_description , task_description, self.global_memory, self.logging_dir)
-        query = self.prompt_builder.get_inference_prompts(init_ob, fewshots, local_memories, short_memories, known_obs_history, action_guidance_history)
+        
+        # 4. 从全局记忆中召回：
+        #    - known_obs_history: 已知观察历史（容器功能、物品位置等）
+        #    - action_guidance_history: 行动指导（过去成功/失败的经验总结）
+        known_obs_history, action_guidance_history = self.global_memory.recall(env_description, task_description)
+        
+        # 5. 获取少样本示例（few-shot examples）
+        #    - 优先从全局记忆中检索相似任务的成功轨迹
+        #    - 如果没有则使用默认示例
+        fewshots = self.fewshot_builder.get_inference_fewshots(
+            self.env.name, 
+            env_description,
+            task_description, 
+            self.global_memory, 
+            self.logging_dir
+        )
+        
+        # 6. 使用 prompt_builder 将所有组件组装成最终的推理提示
+        #    包含：角色定义、指令说明、少样本示例、容器功能、行动指导、
+        #         历史反思、任务描述、当前交互轨迹
+        query = self.prompt_builder.get_inference_prompts(
+            init_ob, 
+            fewshots, 
+            local_memories, 
+            short_memories, 
+            known_obs_history, 
+            action_guidance_history
+        )
+        
         return query
     
     def build_expert_prompt(self, history_log):

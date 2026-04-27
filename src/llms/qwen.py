@@ -45,6 +45,7 @@ class QwenWrapper:
                         f"Invalid mode: {mode}, mode must be 'chat' or 'complete'.")
                 # 添加对None值的兼容
                 if text is None:
+                    print("❗️None Text")
                     cur_try += 1
                     continue
                 if len(text.strip()) >= 5:
@@ -53,6 +54,7 @@ class QwenWrapper:
                     else:
                         return text
                 cur_try += 1
+            print("⚠️Return Empty")
             return ""
         except Exception as e:
             print(prompt)
@@ -104,6 +106,7 @@ class QwenWrapper:
 
             )
             content = response.choices[0].message.content
+            print(f'<🏃ModelOutput>: {content}\n<🏃End>')
             return content if content is not None else ""
 
     @retry(wait=wait_random_exponential(min=1, max=60), stop=stop_after_attempt(6))
