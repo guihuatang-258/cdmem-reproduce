@@ -94,8 +94,8 @@ class CDMemAgent:
         # 循环直到游戏结束或耗尽最大step数
         while cur_step < self.max_steps:
             infer_prompt = self.build_infer_prompt(env_idx, init_ob)
-            print("<⚠️Infer Prompt⚠️>:" +
-                  infer_prompt[-200:] + "<⚠️End⚠️>")  # 查看完整的prompt
+            # print("⚠️Short Memory:" + self.short_memory.recall() +
+            #       "\n⚠️End")  # 查看short memory
             # 用大模型输出当前动作
             # 此处无system prompt
             action = self.llm(infer_prompt, stop=["\n"]).strip()
@@ -107,8 +107,8 @@ class CDMemAgent:
             observation, reward, done, exhausted, info = self.env.step(action)
             self.short_memory.add("observation", observation)
             if to_print:
-                print(f'<🏃Action> {action}\n<🏃End>')
-                print(f'<🌎Observation> {observation} <🌎End>')
+                print(f'🏃Action: {action}')
+                print(f'🌍Observation: {observation}')
                 sys.stdout.flush()  # 确保立即打印
             if done:
                 history_log = self.build_infer_prompt(env_idx, init_ob)

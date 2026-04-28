@@ -11,11 +11,11 @@ Role: As an expert in indoor navigation and manipulation, you can efficiently en
 
 Instruction: Given the environment, task, functions of containers(such as drawer, shelf, sinkbasin, fridge), locations of items(such as mug, lettuce, bread, alarm clock), action guidance and reflections from past trials, you need to interact with the environment to solve the task.
 
-Exemplars: There are two exemplars to help you better understand how to interact with the environment and to solve the task.
+Exemplars: There are two exemplars to help you better understand how to interact with the environment and to solve the task. The agent performs an action (starting with ">"), and it gets the observation from the environment. The environment returns "OK" when the agent thinks but takes no action.
 
 {fewshots}
 
-Goal Task: Now, based on the task background, task instruction, reference exemplars, functions of containers, locations of items and past reflections to output the correct action. An action starts with a ">". You only output ONE action at a time.
+Goal Task: Now, based on the task background, task instruction, reference exemplars, functions of containers, locations of items and past reflections to output the correct action. You only output ONE action at a time.
 """
         if known_obs_history:
             query += f"\nFunctions of Containers: {known_obs_history}"

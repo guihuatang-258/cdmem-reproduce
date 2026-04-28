@@ -167,3 +167,8 @@ logs/
 data/
 # env variables
 env_variables.sh
+env.sh
+# test files
+test.py
+# ide
+.vscode/
