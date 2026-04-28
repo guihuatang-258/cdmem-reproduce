@@ -94,7 +94,7 @@ class GlobalMemory:
             env_curiocity = True
         self.env_memory[env_description]['increment_traj'].append(retrieve_idx)
         self.env_memory[env_description]['all_traj'].append(retrieve_idx)
-        # 属于好奇心或重复，取出增量记忆进行反思  
+        # 属于好奇心或重复，取出增量记忆进行反思。达到 batch_size 后触发 LLM 总结环境知识
         if env_curiocity or len(self.env_memory[env_description]['increment_traj']) > self.env_bs:
             samples = self._get_samples(self.env_memory[env_description]['increment_traj'])
             increment_known_obs = [sample['function'] for sample in samples if len(sample['function']) > 0 and sample['function'] != 'None']
@@ -121,7 +121,7 @@ class GlobalMemory:
         self.task_memory[task_type][status]['increment_traj'].append(retrieve_idx)
         self.task_memory[task_type][status]['all_traj'].append(retrieve_idx)
 
-        # 属于好奇心或重复，取出增量记忆进行反思  
+        # 属于好奇心或重复，取出增量记忆进行反思。达到 batch_size 后触发 LLM 总结任务知识
         if task_curiocity or len(self.task_memory[task_type][status]['increment_traj']) > self.task_bs:
             samples = self._get_samples(self.task_memory[task_type][status]['increment_traj'])
             increment_action_guidance = [(dict(

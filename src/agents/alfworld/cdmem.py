@@ -76,10 +76,10 @@ class CDMemAgent:
                     history_log, is_success, trial_idx, env_idx)
                 # 更新local memory和global memory并记录日志
                 expert_trajectory = self.update_local_memory(
-                    history_log, is_success, env_idx)
+                    history_log, is_success, env_idx) # LLM 生成专家轨迹
                 self.logger.log_local_memory(trial_idx)
                 self.update_global_memory(
-                    expert_trajectory, env_idx, trial_idx)
+                    expert_trajectory, env_idx, trial_idx) # 提取总结存入全局记忆
                 self.logger.log_global_memory(trial_idx)
             self.env.close()
             # self.logger.log_trial_end(trial_idx, num_successes, num_additional_successes)
@@ -90,6 +90,7 @@ class CDMemAgent:
     def run_trajectory(self, env_idx, init_ob, to_print=True):
         cur_step = 0
         print(init_ob)
+        # 重置短期记忆
         self.short_memory.reset()
         # 循环直到游戏结束或耗尽最大step数
         while cur_step < self.max_steps:
@@ -151,8 +152,8 @@ class CDMemAgent:
         """
         构建推理时发送给 LLM 的提示（prompt）
 
-        该函数整合了三种记忆系统（短时记忆、本地记忆、全局记忆）和少样本示例，
-        为当前任务生成一个完整的上下文提示，帮助 LLM 做出最优决策。
+        该函数同时使用三种记忆系统（短时记忆、本地记忆、全局记忆）和少样本示例，
+        为当前任务生成一个完整的上下文prompt，帮助 LLM 做出最优决策。
 
         Args:
             env_idx (int): 环境索引，标识当前是哪个并行环境
@@ -226,15 +227,19 @@ class CDMemAgent:
         is_success = expert_trajectory['is_success']
         if len(increment_env) != 0:
             env_fewshots = self.fewshot_builder.get_summary_fewshots('env')
+            # 环境总结指令
             env_query = self.prompt_builder.env_summary_prompts(
                 increment_env, env_fewshots)
         if len(increment_task) != 0:
             task_fewshots = self.fewshot_builder.get_summary_fewshots(
                 'task', is_success)
+            # 任务总结指令
             task_query = self.prompt_builder.task_summary_prompts(
                 increment_task, task_fewshots, is_success)
         return env_query, task_query
 
+    # Process After Reflection
+    # 处理反思结果，更新本地记忆
     def process_after_reflection(self, expert_result, reflection_result, history_log, is_success):
         scenario = history_log.split("Here is the task:")[-1].strip()
         env_pattern = r'You are in the middle of a room\..*?(?=\n)'
