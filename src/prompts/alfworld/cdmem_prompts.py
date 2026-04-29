@@ -6,7 +6,9 @@ class CDMemPromptBuilder:
         pass
     # Inference Prompt
     # 推理指令
+
     def get_inference_prompts(self, init_ob, fewshots, local_memories, short_memories, known_obs_history, action_guidance_history):
+        # * 原始指令容易导致模型生成错误的action格式
         query = f"""
 Role: As an expert in indoor navigation and manipulation, you can efficiently encode, memorize, and retrieve experiences based on action trajectories of exploration and manipulation. Thus you can rapidly adapt to new environments and efficiently complete tasks. 
 
@@ -34,6 +36,7 @@ Here is the task:
         return query
     # Expert Encoding
     # 专家编码指令，用于update local memories
+
     def get_expert_prompts(self, history_log, fewshots):
         scenario = history_log.split("Here is the task:")[-1].strip()
         query = f"""
@@ -61,6 +64,7 @@ Expert Actions:
         return query
     # Reflection Prompt
     # 反思指令，用于update local memories
+
     def get_reflection_prompts(self, history_log, is_success, fewshots, local_memories, expert_result):
         locations, functions, expert_actions = self._parser_expert_result(
             expert_result)
@@ -114,6 +118,7 @@ Your reflection here, please start with: Reflection:
         return query
     # Environment Summary Prompt
     # 环境总结指令，用于update global memories
+
     def env_summary_prompts(self, known_obs_history, env_fewshots):
         known_obs = known_obs_history['known_obs']
         increment_known_obs = known_obs_history['increment_known_obs']
@@ -146,6 +151,7 @@ Exemplars: There are two exemplars to help you better understand the summary you
         return query
     # Task Summary Prompt
     # 任务总结指令，用于update global memories
+
     def task_summary_prompts(self, action_guidance_history, task_fewshots, is_success):
         action_guidance = action_guidance_history['action_guidance']
         increment_action_guidance = action_guidance_history['increment_action_guidance']
