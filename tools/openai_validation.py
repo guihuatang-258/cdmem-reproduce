@@ -15,8 +15,8 @@ result = client.chat.completions.create(
             'content': 'hello how are you',
         }
     ],
-    model="qwen/qwen3.5-flash-02-23",
-    extra_body={"reasoning": {"enabled": False}}
+    model="minimax/minimax-m2.7",
+    # extra_body={"reasoning": {"enabled": False}}
 )
 print(result)
 print(result.choices[0].message.content)

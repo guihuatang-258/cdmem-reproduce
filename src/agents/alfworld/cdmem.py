@@ -288,6 +288,15 @@ class CDMemAgent:
         return expert_trajectory
 
     def process_before_infer(self, init_ob):
+        """
+        处理初始观察，提取环境描述env_description和任务描述task_description
+
+        Args:
+            init_ob (str): 初始观察
+
+        Returns:
+            tuple: 包含环境描述和任务描述的元组
+        """
         env_description = task_description = ''
         env_pattern = r'You are in the middle of a room\..*?(?=\n)'
         task_pattern = r'Your task is to:\s*(.*)'

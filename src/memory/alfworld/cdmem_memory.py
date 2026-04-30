@@ -146,6 +146,18 @@ class GlobalMemory:
         return increment_env, increment_task
             
     def _convert_task_description(self, task_description):
+        """
+        将任务描述转换为任务类型
+
+        Args:
+            task_description (str): 任务描述
+
+        Raises:
+            ValueError: 任务类型未定义
+
+        Returns:
+            str: 任务类型
+        """
         if "put" in task_description:
             if "heat" in task_description or "hot" in task_description:
                 return "pick_heat_then_place"
@@ -191,9 +203,11 @@ class GlobalMemory:
         
     def recall(self, env_description, task_description, max_len=6):
         env_recall = task_recall = ''
+        # 根据环境描述精准召回环境记忆，env_description 必须完全相同才能命中
         if env_description:
             if env_description in self.env_memory:
                 env_recall = self.env_memory[env_description]['known_obs']
+        # 根据任务描述召回任务记忆，但会通过_convert_task_description泛化为6种任务类型之一再召回
         if task_description:
             task_type = self._convert_task_description(task_description)
             if task_type in self.task_memory_to_recall:
