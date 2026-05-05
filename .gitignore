@@ -173,4 +173,4 @@ test.py
 # ide
 .vscode/
 # text files
-.txt
+*.txt
