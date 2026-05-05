@@ -1,4 +1,4 @@
 from .gpt import GPTWrapper
-from .qwen import QwenWrapper
+from .qwen import OpenAICompatibleWrapper
 
-LLM_WRAPPER = dict(gpt=GPTWrapper, qwen=QwenWrapper)
+LLM_WRAPPER = dict(gpt=GPTWrapper, openai_compatible=OpenAICompatibleWrapper)

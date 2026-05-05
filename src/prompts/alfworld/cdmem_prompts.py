@@ -10,15 +10,15 @@ class CDMemPromptBuilder:
     def get_inference_prompts(self, init_ob, fewshots, local_memories, short_memories, known_obs_history, action_guidance_history):
         # * 原始指令容易导致模型生成错误的action格式
         query = f"""
-Role: As an expert in indoor navigation and manipulation, you can efficiently encode, memorize, and retrieve experiences based on action trajectories of exploration and manipulation. Thus you can rapidly adapt to new environments and efficiently complete tasks. 
+## Role: As an expert in indoor navigation and manipulation, you can efficiently encode, memorize, and retrieve experiences based on action trajectories of exploration and manipulation. Thus you can rapidly adapt to new environments and efficiently complete tasks. 
 
-Instruction: Given the environment, task, functions of containers(such as drawer, shelf, sinkbasin, fridge), locations of items(such as mug, lettuce, bread, alarm clock), action guidance and reflections from past trials, you need to interact with the environment to solve the task.
+## Instruction: Given the environment, task, functions of containers(such as drawer, shelf, sinkbasin, fridge), locations of items(such as mug, lettuce, bread, alarm clock), action guidance and reflections from past trials, you need to interact with the environment to solve the task.
 
-Exemplars: There are two exemplars to help you better understand how to interact with the environment and to solve the task. The agent performs an action (starting with ">"), and it gets the observation from the environment. The environment returns "OK" when the agent thinks but takes no action.
+## Exemplars: There are two trajectories to help you better understand how to interact with the environment and to solve the task. You perform an action (the line starting with ">") and get an observation from the environment. There are two types of actions you can take: think, or execute. 
 
 {fewshots}
 
-Goal Task: Now, based on the task background, task instruction, reference exemplars, functions of containers, locations of items and past reflections to output the correct action. You only output ONE action at a time.
+## Goal Task: Now, based on the task background, task instruction, reference exemplars, functions of containers, locations of items and past reflections to output the **correct action**. You only output ONE line at a time.
 """
         if known_obs_history:
             query += f"\nFunctions of Containers: {known_obs_history}"
@@ -30,8 +30,9 @@ Goal Task: Now, based on the task background, task instruction, reference exempl
                 query += f'\nTrial {i}:\n{m.strip()}'
         query += f"""
 
-Here is the task:
-{init_ob}{short_memories}
+## Here is the task:
+{init_ob}
+{short_memories}
 """
         return query
     # Expert Encoding

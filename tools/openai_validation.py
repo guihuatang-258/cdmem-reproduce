@@ -12,10 +12,11 @@ result = client.chat.completions.create(
     messages=[
         {
             'role': 'user',
-            'content': 'hello how are you',
+            'content': '说hello\nworld',
         }
     ],
-    model="minimax/minimax-m2.7",
+    model="qwen/qwen3.5-flash-02-23",
+    stop="\n",
     # extra_body={"reasoning": {"enabled": False}}
 )
 print(result)

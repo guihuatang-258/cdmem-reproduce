@@ -95,18 +95,17 @@ class CDMemAgent:
         # 循环直到游戏结束或耗尽最大step数
         while cur_step < self.max_steps:
             infer_prompt = self.build_infer_prompt(env_idx, init_ob)
-            # print("⚠️Short Memory:" + self.short_memory.recall() +
-            #       "\n⚠️End")  # 查看short memory
             # 用大模型输出当前动作
             # 此处无system prompt
+            # ! 太坑了这里的stop对qwen模型无效，需要手动截断！！！
             action = self.llm(infer_prompt, stop=["\n"]).strip()
-            # print(f'<🏃Action>: {action}\n<🏃End>')
             # 解析动作，清楚多余的标记及统一动作
             action = self.env.action_parser(action)
             # 没走一步，把action和observation加入short memory
             self.short_memory.add("action", action)
             observation, reward, done, exhausted, info = self.env.step(action)
-            self.short_memory.add("observation", observation)
+            # *!此处在observation前添加Observation: 前缀
+            self.short_memory.add("observation", "Observation: " + observation)
             if to_print:
                 print(f'🏃Action: {action}')
                 print(f'🌍Observation: {observation}')
@@ -128,12 +127,16 @@ class CDMemAgent:
         if not self.local_memory.is_skip(env_idx):
             expert_prompt = self.build_expert_prompt(history_log)
             expert_result = self.llm(expert_prompt, max_tokens=512)
+            print(f"🔍 [DEBUG] expert_result: {expert_result}")
             reflection_prompt = self.build_reflection_prompt(
                 history_log, is_success, expert_result, env_idx)
             reflection_result = self.llm(reflection_prompt, max_tokens=512)
+            print(f"🔍 [DEBUG] reflection_result: {reflection_result}")
             expert_trajectory = self.process_after_reflection(
                 expert_result, reflection_result, history_log, is_success)
+            print(f"🔍 [DEBUG] expert_trajectory: {expert_trajectory}")
             self.local_memory.add(env_idx, expert_trajectory)
+            print(f"✅ [DEBUG] local memory 更新完成，local memory={self.local_memory.recall(env_idx)}")
         return expert_trajectory
 
     def update_global_memory(self, expert_trajectory, env_idx, trial_idx):
@@ -162,23 +165,33 @@ class CDMemAgent:
         Returns:
             str: 组装完成的推理提示，发送给 LLM 进行动作预测
         """
-        # 1. 从短时记忆中召回当前轨迹的交互历史（action-observation 对）
-        short_memories = self.short_memory.recall()
+        with open('./prompt_log.txt', 'a') as f:
+            f.write(f'🌍env_idx: {env_idx}\n')
+            # f.write(f'🌍init_ob: {init_ob}\n')
+                    
+                   
+            # 1. 从短时记忆中召回当前轨迹的交互历史（action-observation 对）
+            short_memories = self.short_memory.recall()
+            f.write(f'⚠️short_memories: {short_memories}\n')
 
-        # 2. 从本地记忆中召回该环境的历史反思记录
-        local_memories = self.local_memory.recall(env_idx)
-        # 限制最多保留最近 3 条反思，避免 prompt 过长
-        if len(local_memories) > 3:
-            local_memories = local_memories[-3:]
+            # 2. 从本地记忆中召回该环境的历史反思记录
+            local_memories = self.local_memory.recall(env_idx)
+            
+            # 限制最多保留最近 3 条反思，避免 prompt 过长
+            if len(local_memories) > 3:
+                local_memories = local_memories[-3:]
+            f.write(f'⚠️local_memories: {local_memories}\n')
 
-        # 3. 解析初始观察，提取环境描述和任务描述
-        env_description, task_description = self.process_before_infer(init_ob)
+            # 3. 解析初始观察，提取环境描述和任务描述
+            env_description, task_description = self.process_before_infer(init_ob)
 
-        # 4. 从全局记忆中召回：
-        #    - known_obs_history: 已知观察历史（容器功能、物品位置等）
-        #    - action_guidance_history: 行动指导（过去成功/失败的经验总结）
-        known_obs_history, action_guidance_history = self.global_memory.recall(
-            env_description, task_description)
+            # 4. 从全局记忆中召回：
+            #    - known_obs_history: 已知观察历史（容器功能、物品位置等）
+            #    - action_guidance_history: 行动指导（过去成功/失败的经验总结）
+            known_obs_history, action_guidance_history = self.global_memory.recall(
+                env_description, task_description)
+            f.write(f'⚠️known_obs_history: {known_obs_history}\n')
+            f.write(f'⚠️action_guidance_history: {action_guidance_history}\n')
 
         # 5. 获取少样本示例（few-shot examples）
         #    - 优先从全局记忆中检索相似任务的成功轨迹
@@ -247,7 +260,9 @@ class CDMemAgent:
         location_pattern = r'\(1\)locations:(.*?)\(2\)functions:'
         function_pattern = r'\(2\)functions:(.*?)Expert Actions:'
         action_pattern = r'Expert Actions:(.*)'
-        reflection_pattern = r'Reflection: (.*?)(?:\n|$)'
+        # reflection_pattern = r'Reflection: (.*?)(?:\n|$)'
+        # 大小写不敏感模式
+        reflection_pattern = r'[Rr][Ee][Ff][Ll][Ee][Cc][Tt][Ii][Oo][Nn]: (.*?)(?:\n|$)'
 
         env_description = task_description = ''
         location = function = action = reflection = ''
@@ -272,10 +287,12 @@ class CDMemAgent:
         if action_match:
             action = action_match.group(1).strip()
 
-        reflection_match = re.search(
-            reflection_pattern, reflection_result, re.DOTALL)
-        if reflection_match:
-            reflection = reflection_match.group(1).strip()
+        # reflection_match = re.search(
+        #     reflection_pattern, reflection_result, re.DOTALL)
+        # if reflection_match:
+        #     reflection = reflection_match.group(1).strip()
+        reflection = reflection_result # *直接不match了，防止match不到
+
 
         expert_trajectory = dict(env=env_description,
                                  task=task_description,

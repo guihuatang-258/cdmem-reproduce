@@ -57,8 +57,9 @@ def main(args):
         if not os.path.exists(logging_dir):
             os.makedirs(logging_dir)
     # 兼容openrouter格式
-    model_prefix = args.model.split(
-        '/')[0] if '/' in args.model else args.model.split('-')[0]
+    model_prefix = "openai_compatible"
+    # model_prefix = args.model.split(
+    #     '/')[0] if '/' in args.model else args.model.split('-')[0]
     agent = AGENT[args.env][args.agent](
         num_trials=args.num_trials,  # 总试验次数
         num_envs=args.num_envs,  # 并行环境数

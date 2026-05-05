@@ -21,6 +21,20 @@ class CDMemFewshotBuilder:
     def __init__(self):
         pass
     
+    def _add_observation_prefix(self, text):
+        """给 fewshot 中的 observation 行添加 'Observation: ' 前缀"""
+        lines = text.split('\n')
+        result = []
+        # 跳过前两行，因为它们是环境描述和任务描述
+        for line in lines[2:]:
+            # 如果行以 '>' 开头（action）或为空行或以 'Observation:'，保持不变
+            if line.startswith('>') or line.strip() == '' or line.startswith('Observation:'):
+                result.append(line)
+            # 否则是 observation，添加前缀
+            else:
+                result.append('Observation: ' + line)
+        return '\n'.join(result)
+    
     # def get_inference_fewshots(self, name, env_description , task_description, global_memory, logging_dir):
     #     for i, (k, v) in enumerate(PREFIXES.items()):
     #         if name.startswith(k):
@@ -68,7 +82,7 @@ class CDMemFewshotBuilder:
             examples.extend(default_examples)
         if len(examples) != 2:
             import pdb;pdb.set_trace()
-        return '\n\n'.join(examples)
+        return self._add_observation_prefix('\n\n'.join(examples))
                          
     def _ids2example(self, logging_dir, example_idx):
         env_idx, trial_idx = example_idx
@@ -81,7 +95,8 @@ class CDMemFewshotBuilder:
     def _default_inference_fewshots(self, name):
         for i, (k, v) in enumerate(PREFIXES.items()):
             if name.startswith(k):
-                return [d[f'react_{v}_1'] , d[f'react_{v}_0']]
+                examples = [d[f'react_{v}_1'] , d[f'react_{v}_0']]
+                return [self._add_observation_prefix(ex) for ex in examples]
         
     def get_expert_fewshots(self):
         with open("./prompts/expert_few_shot_example.txt", 'r') as f:

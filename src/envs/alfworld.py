@@ -48,16 +48,18 @@ class AlfworldEnv:
         self.env.close()
 
     def action_parser(self, action):
-        if ">" in action:
-            action = action.replace(">", "").strip()
-        action_words = action.split(" ")
+        action = action.strip()
+        # *!强制只保留一行，避免模型幻觉
+        first_line = action.split('\n')[0]
+        if ">" in first_line:
+            first_line = first_line.replace(">", "").strip()
+        action_words = first_line.split(" ")
         if "put" in action_words:
             for i in range(len(action_words)):
-                # 将in和on统一替换为in/on，可以减少动作空间，提高成功率
                 if action_words[i].strip().lower() == "in" or action_words[i].strip().lower() == 'on':
                     action_words[i] = "in/on"
-                    action = " ".join(action_words)
-        return action
+                    first_line = " ".join(action_words)
+        return first_line
 
 
 def process_ob(ob):
