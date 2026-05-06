@@ -76,10 +76,10 @@ class CDMemAgent:
                     history_log, is_success, trial_idx, env_idx)
                 # 更新local memory和global memory并记录日志
                 expert_trajectory = self.update_local_memory(
-                    history_log, is_success, env_idx) # LLM 生成专家轨迹
+                    history_log, is_success, env_idx)  # LLM 生成专家轨迹
                 self.logger.log_local_memory(trial_idx)
                 self.update_global_memory(
-                    expert_trajectory, env_idx, trial_idx) # 提取总结存入全局记忆
+                    expert_trajectory, env_idx, trial_idx)  # 提取总结存入全局记忆
                 self.logger.log_global_memory(trial_idx)
             self.env.close()
             # self.logger.log_trial_end(trial_idx, num_successes, num_additional_successes)
@@ -136,7 +136,8 @@ class CDMemAgent:
                 expert_result, reflection_result, history_log, is_success)
             print(f"🔍 [DEBUG] expert_trajectory: {expert_trajectory}")
             self.local_memory.add(env_idx, expert_trajectory)
-            print(f"✅ [DEBUG] local memory 更新完成，local memory={self.local_memory.recall(env_idx)}")
+            print(
+                f"✅ [DEBUG] local memory 更新完成，local memory={self.local_memory.recall(env_idx)}")
         return expert_trajectory
 
     def update_global_memory(self, expert_trajectory, env_idx, trial_idx):
@@ -165,33 +166,32 @@ class CDMemAgent:
         Returns:
             str: 组装完成的推理提示，发送给 LLM 进行动作预测
         """
-        with open('./prompt_log.txt', 'a') as f:
-            f.write(f'🌍env_idx: {env_idx}\n')
-            # f.write(f'🌍init_ob: {init_ob}\n')
-                    
-                   
-            # 1. 从短时记忆中召回当前轨迹的交互历史（action-observation 对）
-            short_memories = self.short_memory.recall()
-            f.write(f'⚠️short_memories: {short_memories}\n')
+        # with open('./prompt_log.txt', 'a') as f:
+        # f.write(f'🌍env_idx: {env_idx}\n')
+        # f.write(f'🌍init_ob: {init_ob}\n')
 
-            # 2. 从本地记忆中召回该环境的历史反思记录
-            local_memories = self.local_memory.recall(env_idx)
-            
-            # 限制最多保留最近 3 条反思，避免 prompt 过长
-            if len(local_memories) > 3:
-                local_memories = local_memories[-3:]
-            f.write(f'⚠️local_memories: {local_memories}\n')
+        # 1. 从短时记忆中召回当前轨迹的交互历史（action-observation 对）
+        short_memories = self.short_memory.recall()
+        # f.write(f'⚠️short_memories: {short_memories}\n')
 
-            # 3. 解析初始观察，提取环境描述和任务描述
-            env_description, task_description = self.process_before_infer(init_ob)
+        # 2. 从本地记忆中召回该环境的历史反思记录
+        local_memories = self.local_memory.recall(env_idx)
 
-            # 4. 从全局记忆中召回：
-            #    - known_obs_history: 已知观察历史（容器功能、物品位置等）
-            #    - action_guidance_history: 行动指导（过去成功/失败的经验总结）
-            known_obs_history, action_guidance_history = self.global_memory.recall(
-                env_description, task_description)
-            f.write(f'⚠️known_obs_history: {known_obs_history}\n')
-            f.write(f'⚠️action_guidance_history: {action_guidance_history}\n')
+        # 限制最多保留最近 3 条反思，避免 prompt 过长
+        if len(local_memories) > 3:
+            local_memories = local_memories[-3:]
+        # f.write(f'⚠️local_memories: {local_memories}\n')
+
+        # 3. 解析初始观察，提取环境描述和任务描述
+        env_description, task_description = self.process_before_infer(init_ob)
+
+        # 4. 从全局记忆中召回：
+        #    - known_obs_history: 已知观察历史（容器功能、物品位置等）
+        #    - action_guidance_history: 行动指导（过去成功/失败的经验总结）
+        known_obs_history, action_guidance_history = self.global_memory.recall(
+            env_description, task_description)
+        # f.write(f'⚠️known_obs_history: {known_obs_history}\n')
+        # f.write(f'⚠️action_guidance_history: {action_guidance_history}\n')
 
         # 5. 获取少样本示例（few-shot examples）
         #    - 优先从全局记忆中检索相似任务的成功轨迹
@@ -291,8 +291,7 @@ class CDMemAgent:
         #     reflection_pattern, reflection_result, re.DOTALL)
         # if reflection_match:
         #     reflection = reflection_match.group(1).strip()
-        reflection = reflection_result # *直接不match了，防止match不到
-
+        reflection = reflection_result  # *直接不match了，防止match不到
 
         expert_trajectory = dict(env=env_description,
                                  task=task_description,

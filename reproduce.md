@@ -57,3 +57,7 @@ You open the drawer 4. The drawer 4 is open
 ```
 
 导致游戏无法正常运行。后调整了src/prompts/alfworld/cdmem\_prompts.py中的get\_inference\_prompts，才缓解这个问题。
+
+### 🔥 终极解决方案
+
+原文中也没法保证llm输出的action格式是正确的，所以是通过强行在`\n`处截断action来解决这个问题

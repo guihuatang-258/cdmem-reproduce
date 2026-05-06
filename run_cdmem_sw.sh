@@ -1,13 +1,13 @@
 source ./env.sh
 python src/main.py \
-        --num_trials 5 \
-        --num_envs 50 \
+        --num_trials 4 \
+        --num_envs 20 \
         --run_name "scworld_qwen3.6-flash_30_steps" \
         --model "qwen/qwen3.6-flash"  \
         --agent "cdmem"   \
         --env "scienceworld" \
-        --start_trial_num 0
-        # --max_steps 30
+        --start_trial_num 0 \
+        --max_steps 30 \
         # --is_resume \
-        # --resume_dir logs/CDMem_logs_t5e67_0628_050752 \
+        # --resume_dir logs/scworld_qwen3.6-flash_20_steps_0506_133226 \
         

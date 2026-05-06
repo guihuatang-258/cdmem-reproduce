@@ -18,16 +18,18 @@ class OpenAICompatibleWrapper:
     模型名称格式: <provider>/<model-name>
     例如: "qwen/qwen3.5-flash-02-23", "openai/gpt-4", "anthropic/claude-3"
     """
-    def __init__(self, model: str, base_url: Optional[str] = None, api_key: Optional[str] = None, 
+
+    def __init__(self, model: str, base_url: Optional[str] = None, api_key: Optional[str] = None,
                  disable_reasoning: bool = True):
         self.client = OpenAI(
-            base_url=base_url or (os.getenv('OPENAI_API_BASE_URL') if 'OPENAI_API_BASE_URL' in os.environ else None),
+            base_url=base_url or (os.getenv(
+                'OPENAI_API_BASE_URL') if 'OPENAI_API_BASE_URL' in os.environ else None),
             api_key=api_key or os.getenv('OPENAI_API_KEY'),
         )
         self.model = model
         self.disable_reasoning = disable_reasoning
 
-    def __call__(self, prompt: str, stop: List[str] = None, max_tokens: int = 256, mode: str = 'chat', 
+    def __call__(self, prompt: str, stop: List[str] = None, max_tokens: int = 256, mode: str = 'chat',
                  model=None, sys_msg=None, use_json=False) -> str:
         if not model:
             model = self.model
@@ -49,12 +51,18 @@ class OpenAICompatibleWrapper:
                     continue
                 if len(text.strip()) >= 5:
                     if use_json:
-                        return json.loads(text)
+                        try:
+                            return json.loads(text)
+                        except json.JSONDecodeError as e:
+                            print(f"⚠️ [WARNING] JSON 解析失败：{e}")
+                            print(f"错误文本：{text[:200]}...")
+                            cur_try += 1
+                            continue
                     else:
                         return text
                 cur_try += 1
             print("⚠️Return Empty")
-            return ""
+            return None if use_json else ""
         except Exception as e:
             print(prompt)
             print(e)
@@ -88,9 +96,9 @@ class OpenAICompatibleWrapper:
                     "content": prompt
                 }
             ]
-        
+
         extra_body = self._get_extra_body()
-        
+
         if use_json:
             response = self.client.chat.completions.create(
                 model=model,
@@ -118,7 +126,7 @@ class OpenAICompatibleWrapper:
     def get_completion(self, prompt: str, model: str, max_tokens: int, temperature: float = 0.0,
                        stop_strs: Optional[List[str]] = None) -> str:
         extra_body = self._get_extra_body()
-        
+
         response = self.client.chat.completions.create(
             model=model,
             messages=[

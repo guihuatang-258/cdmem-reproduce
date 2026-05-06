@@ -91,12 +91,14 @@ class CDMemAgent:
                 # print('=== Info ===\n', info)
                 # print()
                 # print(f"{env_idx} using {self.env.env_name}")
+                print(f"{env_idx}")
                 if self.local_memory.is_success(env_idx):
                     num_successes += 1
                     self.logger.log_world_success(trial_idx, env_idx)
                     self.logger.log_trial_success(trial_idx, env_idx)
                     continue
-                history_log, is_success = self.run_trajectory(env_idx, init_ob, task_description, info=info)
+                history_log, is_success = self.run_trajectory(
+                    env_idx, init_ob, task_description, info=info)
                 if is_success:
                     self.logger.log_world_success(trial_idx, env_idx)
                     self.local_memory.set_success(env_idx)
@@ -104,23 +106,28 @@ class CDMemAgent:
                     num_additional_successes += 1
                 else:
                     self.logger.log_world_fail(trial_idx, env_idx)
-                self.logger.log_trial_content(history_log, is_success, trial_idx, env_idx)
-                expert_trajectory = self.update_local_memory(history_log, is_success, env_idx, task_description)
+                self.logger.log_trial_content(
+                    history_log, is_success, trial_idx, env_idx)
+                expert_trajectory = self.update_local_memory(
+                    history_log, is_success, env_idx, task_description)
                 self.logger.log_local_memory(trial_idx)
-                self.update_global_memory(expert_trajectory, env_idx, trial_idx)
+                self.update_global_memory(
+                    expert_trajectory, env_idx, trial_idx)
                 self.logger.log_global_memory(trial_idx)
             # self.env.close()
             # self.logger.log_trial_end(trial_idx, num_successes, num_additional_successes)
-            self.logger.log_world_end(trial_idx, num_successes, num_additional_successes)
+            self.logger.log_world_end(
+                trial_idx, num_successes, num_additional_successes)
             # self.env.reload()
 
     def run_trajectory(self, env_idx, init_ob, task_description, to_print=True, info=None):
         cur_step = 0
-        # print(init_ob)
+        print(init_ob)
         score = 0
         self.short_memory.reset()
         while cur_step < self.max_steps:
-            infer_prompt = self.build_infer_prompt(env_idx, init_ob, task_description)
+            infer_prompt = self.build_infer_prompt(
+                env_idx, init_ob, task_description)
 
             # print('\n\n=== Infer prompt begin ===\n', infer_prompt, '\n\n=== Infer prompt end===\n')
 
@@ -184,17 +191,41 @@ class CDMemAgent:
                     }
                     """
 
-            response = self.llm(infer_prompt, sys_msg=system_msg, use_json=True)
+            response = self.llm(
+                infer_prompt, sys_msg=system_msg, use_json=True)
+
+            # 如果 LLM 返回 None（JSON 解析失败或重试耗尽），记录失败并返回
+            if response is None:
+                print(f"❌ [ERROR] LLM 返回 None，无法获取 action，任务失败")
+                history_log = self.build_infer_prompt(
+                    env_idx, init_ob, task_description, score=score)
+                return history_log, False
+
+            # 检查返回的 JSON 是否包含必需的字段
+            if 'action' not in response:
+                print(f"❌ [ERROR] LLM 返回的 JSON 缺少 'action' 字段：{response}")
+                history_log = self.build_infer_prompt(
+                    env_idx, init_ob, task_description, score=score)
+                return history_log, False
+
+            if 'reason' not in response:
+                print(f"⚠️ [WARNING] LLM 返回的 JSON 缺少 'reason' 字段，使用默认值")
+                response['reason'] = 'No reason provided'
+
             reason = response['reason']
-            action = response['action'].replace(' the ', ' ').replace('  ', ' ')
+            action = response['action'].replace(
+                ' the ', ' ').replace('  ', ' ')
             # print('\n\n=== GPT action begin ===\n', response, '\n\n=== GPT action end ===\n')
             action = action.replace('(', '').replace(')', '')
             # action = self.env.action_parser(action)
             self.short_memory.add("think", reason)
             self.short_memory.add("action", action)
-            action = findValidActionNew([action], self.env, info['look'], recent_actions=self.short_memory.recent_actions())
+            action = findValidActionNew(
+                [action], self.env, info['look'], recent_actions=self.short_memory.recent_actions())
             # print('\n\n=== Correct action begin ===\n', action, '\n\n=== Correct action end ===\n')
             observation, reward, done, info = self.env.step(action)
+            print(f'🏃Action: {action}')
+            print(f'🌍Observation: {observation}')
             if info['score']:
                 score = info['score']
             self.short_memory.add("observation", observation)
@@ -213,7 +244,8 @@ class CDMemAgent:
             #     print(f'> {action}\n{observation}')
             #     sys.stdout.flush()
             if done:
-                history_log = self.build_infer_prompt(env_idx, init_ob, task_description, score=score)
+                history_log = self.build_infer_prompt(
+                    env_idx, init_ob, task_description, score=score)
                 if score == 100:
                     return history_log, True
                 else:
@@ -221,28 +253,38 @@ class CDMemAgent:
                     return history_log, False
 
             cur_step += 1
-        history_log = self.build_infer_prompt(env_idx, init_ob, task_description, score)
+        history_log = self.build_infer_prompt(
+            env_idx, init_ob, task_description, score)
         return history_log, False
 
     def update_local_memory(self, history_log, is_success, env_idx, task_description):
         if not self.local_memory.is_skip(env_idx):
             expert_prompt = self.build_expert_prompt(history_log)
             expert_result = self.llm(expert_prompt, max_tokens=512)
-            reflection_prompt = self.build_reflection_prompt(history_log, is_success, expert_result, env_idx)
+            print(f"🔍 [DEBUG] expert_result: {expert_result}")
+            reflection_prompt = self.build_reflection_prompt(
+                history_log, is_success, expert_result, env_idx)
             reflection_result = self.llm(reflection_prompt, max_tokens=512)
-            expert_trajectory = self.process_after_reflection(expert_result, reflection_result, history_log, is_success, task_description)
+            print(f"🔍 [DEBUG] reflection_result: {reflection_result}")
+            expert_trajectory = self.process_after_reflection(
+                expert_result, reflection_result, history_log, is_success, task_description)
+            print(f"🔍 [DEBUG] expert_trajectory: {expert_trajectory}")
             self.local_memory.add(env_idx, expert_trajectory)
+            print(
+                f"✅ [DEBUG] local memory 更新完成，local memory={self.local_memory.recall(env_idx)}")
         return expert_trajectory
 
     def update_global_memory(self, expert_trajectory, env_idx, trial_idx):
         env_summary = task_summary = ''
-        env_query, task_query = self.build_summary_prompt(expert_trajectory, env_idx, trial_idx)
+        env_query, task_query = self.build_summary_prompt(
+            expert_trajectory, env_idx, trial_idx)
         if env_query:
             env_summary = self.llm(env_query, max_tokens=512)
             self.global_memory.add(env_summary, expert_trajectory, mode='env')
         if task_query:
             task_summary = self.llm(task_query, max_tokens=512)
-            self.global_memory.add(task_summary, expert_trajectory, mode='task')
+            self.global_memory.add(
+                task_summary, expert_trajectory, mode='task')
 
     def build_infer_prompt(self, env_idx, init_ob, task_description, score=None):
         short_memories = self.short_memory.recall()
@@ -250,7 +292,8 @@ class CDMemAgent:
         if len(local_memories) > 3:
             local_memories = local_memories[-3:]
         env_description = self.process_before_infer(init_ob)
-        known_obs_history, action_guidance_history = self.global_memory.recall(env_description, task_description)
+        known_obs_history, action_guidance_history = self.global_memory.recall(
+            env_description, task_description)
         fewshots = self.fewshot_builder.get_inference_fewshots(env_idx, env_description, task_description,
                                                                self.global_memory, self.logging_dir)
         # action_guides = self.combine_action_guides()
@@ -278,18 +321,23 @@ class CDMemAgent:
     def build_summary_prompt(self, expert_trajectory, env_idx, trial_idx):
         env_query = task_query = ''
         increment_env, increment_task = \
-            self.global_memory.short2long(expert_trajectory, env_idx, trial_idx)
+            self.global_memory.short2long(
+                expert_trajectory, env_idx, trial_idx)
         is_success = expert_trajectory['is_success']
         if len(increment_env) != 0:
             env_fewshots = self.fewshot_builder.get_summary_fewshots('env')
-            env_query = self.prompt_builder.env_summary_prompts(increment_env, env_fewshots)
+            env_query = self.prompt_builder.env_summary_prompts(
+                increment_env, env_fewshots)
         if len(increment_task) != 0:
-            task_fewshots = self.fewshot_builder.get_summary_fewshots('task', is_success)
-            task_query = self.prompt_builder.task_summary_prompts(increment_task, task_fewshots, is_success)
+            task_fewshots = self.fewshot_builder.get_summary_fewshots(
+                'task', is_success)
+            task_query = self.prompt_builder.task_summary_prompts(
+                increment_task, task_fewshots, is_success)
         return env_query, task_query
 
     def process_after_reflection(self, expert_result, reflection_result, history_log, is_success, task_description):
-        scenario = history_log.split("Task that you are required to complete, read this task description above carefully and never misunderstand the task.")[-1].strip()
+        scenario = history_log.split(
+            "Task that you are required to complete, read this task description above carefully and never misunderstand the task.")[-1].strip()
         # env_pattern = r'This room is called the\..*?(?=\n)'
         # task_pattern = r'Your task is to: (.*?)(?=\n)'
         location_pattern = r'\(1\)locations:(.*?)\(2\)functions:'
@@ -300,7 +348,7 @@ class CDMemAgent:
         env_description = ''
         task_description = 'other'
         location = function = action = reflection = ''
-        
+
         # 需要在这match env和task
         first_line = scenario.split('\n')[0].strip()
         for room in self.rooms:
@@ -328,9 +376,11 @@ class CDMemAgent:
         if action_match:
             action = action_match.group(1).strip()
 
-        reflection_match = re.search(reflection_pattern, reflection_result, re.DOTALL)
-        if reflection_match:
-            reflection = reflection_match.group(1).strip()
+        # reflection_match = re.search(
+        #     reflection_pattern, reflection_result, re.DOTALL)
+        # if reflection_match:
+        #     reflection = reflection_match.group(1).strip()
+        reflection = reflection_result  # *直接不match了，防止match不到
 
         expert_trajectory = dict(env=env_description,
                                  task=task_description,
@@ -353,6 +403,7 @@ class CDMemAgent:
         for room in self.rooms:
             if first_line.__contains__(room):
                 env_description = room
+
         # task_match = re.search(task_pattern, init_ob, re.DOTALL)
         # if task_match:
         #     task_description = task_match.group(1).strip()

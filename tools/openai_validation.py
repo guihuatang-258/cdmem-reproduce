@@ -12,12 +12,13 @@ result = client.chat.completions.create(
     messages=[
         {
             'role': 'user',
-            'content': '说hello\nworld',
+            'content': '说hello\nworld，返回json格式',
         }
     ],
     model="qwen/qwen3.5-flash-02-23",
-    stop="\n",
-    # extra_body={"reasoning": {"enabled": False}}
+    # stop="\n",
+    response_format={'type': 'json_object'},
+    extra_body={"reasoning": {"enabled": False}}
 )
 print(result)
 print(result.choices[0].message.content)
