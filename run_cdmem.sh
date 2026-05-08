@@ -1,12 +1,12 @@
 source ./env.sh
 python src/main.py \
         --num_trials 5 \
-        --num_envs 50 \
-        --run_name "cdmem_qwen3.6-flash_30_steps" \
+        --num_envs 20 \
+        --run_name "cdmem_qwen3.6-flash_40_steps" \
         --model "qwen/qwen3.6-flash"  \
         --agent "cdmem"   \
         --env "alfworld" \
-        --max_steps 30
+        --max_steps 40
         # --is_resume \
         # --resume_dir logs/cdmem_0503_100540 \
         # --start_trial_num 0

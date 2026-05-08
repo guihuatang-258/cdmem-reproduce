@@ -7,7 +7,7 @@ python src/main.py \
         --agent "cdmem"   \
         --env "scienceworld" \
         --start_trial_num 0 \
-        --max_steps 30 \
+        --max_steps 20 \
         # --is_resume \
         # --resume_dir logs/scworld_qwen3.6-flash_20_steps_0506_133226 \
         

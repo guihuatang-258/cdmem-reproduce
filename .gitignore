@@ -174,3 +174,7 @@ test.py
 .vscode/
 # text files
 *.txt
+
+# cc-connect local config may contain messaging platform tokens
+config.toml
+.config.toml.lock
