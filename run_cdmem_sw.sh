@@ -1,4 +1,3 @@
-source ./env.sh
 python src/main.py \
         --num_trials 4 \
         --num_envs 20 \

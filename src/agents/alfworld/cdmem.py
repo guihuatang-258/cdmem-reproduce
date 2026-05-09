@@ -92,13 +92,44 @@ class CDMemAgent:
         print(init_ob)
         # 重置短期记忆
         self.short_memory.reset()
+        action_sys_msg = """
+You are controlling an ALFWorld TextWorld agent. You need to output your thinking/reason/plan to solve the task, and select a correct action to execute.
+At each turn, output exactly ONE line and do not output observations, explanations, markdown, or multiple actions.
+
+Available action templates:
+- think: <brief private reasoning>
+- look
+- inventory
+- go to <receptacle>
+- open <receptacle>
+- close <receptacle>
+- examine <object_or_receptacle>
+- take <object> from <receptacle>
+- move <object> to <receptacle>
+- put <object> in/on <receptacle>
+- put <object> into <container_object>
+- put <receptacle_object> in <receptacle>
+- use <object>
+- heat <object> with <receptacle>
+- clean <object> with <receptacle>
+- cool <object> with <receptacle>
+- slice <object> with <object>
+
+Use exact object and receptacle names with their numbers from observations, such as "apple 1", "drawer 2", or "sinkbasin 1". Do not invent object names, receptacle names, ids, or environment feedback.
+
+Please note, the task interactive trajectory is realtime feedback from environment. You are required to interact with the environment to complete the task.
+So, you need to output your thinking or a valid action, and the action will be executed in the environment.
+
+If you output your thinking, the environment will simple respond with "OK".
+If you meet operation failure, the environment will return "Nothing happens", which means the current observation doesn't match the current action.
+""".strip()
         # 循环直到游戏结束或耗尽最大step数
         while cur_step < self.max_steps:
             infer_prompt = self.build_infer_prompt(env_idx, init_ob)
             # 用大模型输出当前动作
-            # 此处无system prompt
             # ! 太坑了这里的stop对qwen模型无效，需要手动截断！！！
-            action = self.llm(infer_prompt, stop=["\n"]).strip()
+            action = self.llm(
+                infer_prompt, stop=["\n"], sys_msg=action_sys_msg).strip()
             # 解析动作，清楚多余的标记及统一动作
             action = self.env.action_parser(action)
             # 没走一步，把action和observation加入short memory

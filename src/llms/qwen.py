@@ -9,6 +9,8 @@ from tenacity import (
 )
 
 from typing import Optional, List
+from dotenv import load_dotenv
+load_dotenv()
 
 
 class OpenAICompatibleWrapper:
@@ -22,9 +24,10 @@ class OpenAICompatibleWrapper:
     def __init__(self, model: str, base_url: Optional[str] = None, api_key: Optional[str] = None,
                  disable_reasoning: bool = True):
         self.client = OpenAI(
-            base_url=base_url or (os.getenv(
-                'OPENAI_API_BASE_URL') if 'OPENAI_API_BASE_URL' in os.environ else None),
-            api_key=api_key or os.getenv('OPENAI_API_KEY'),
+            base_url=os.getenv('OPENAI_API_BASE_URL'),
+            # base_url or (os.getenv('OPENAI_API_BASE_URL') if 'OPENAI_API_BASE_URL' in os.environ else None),
+            api_key=os.getenv('OPENAI_API_KEY'),
+            # api_key or os.getenv('OPENAI_API_KEY'),
         )
         self.model = model
         self.disable_reasoning = disable_reasoning

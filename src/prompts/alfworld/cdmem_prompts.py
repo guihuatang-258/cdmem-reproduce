@@ -14,11 +14,11 @@ class CDMemPromptBuilder:
 
 ## Instruction: Given the environment, task, functions of containers(such as drawer, shelf, sinkbasin, fridge), locations of items(such as mug, lettuce, bread, alarm clock), action guidance and reflections from past trials, you need to interact with the environment to solve the task.
 
-## Exemplars: There are two trajectories to help you better understand how to interact with the environment and to solve the task. You perform an action (the line starting with ">") and get an observation from the environment. There are two types of actions you can take: think, or execute. 
+## Exemplars: There are two trajectories to help you better understand how to interact with the environment and to solve the task. 
 
 {fewshots}
 
-## Goal Task: Now, based on the task background, task instruction, reference exemplars, functions of containers, locations of items and past reflections to output the **correct action**. You only output ONE line at a time.
+## Goal Task: Now, based on the task background, task instruction, reference exemplars, functions of containers, locations of items and past reflections to output the **correct action**.
 """
         if known_obs_history:
             query += f"\nFunctions of Containers: {known_obs_history}"
@@ -32,6 +32,8 @@ class CDMemPromptBuilder:
 
 ## Here is the task:
 {init_ob}
+
+## Task Interactive Trajectory:
 {short_memories}
 """
         return query
