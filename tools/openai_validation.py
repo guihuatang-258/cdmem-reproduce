@@ -15,12 +15,13 @@ result = client.chat.completions.create(
     messages=[
         {
             'role': 'user',
-            'content': '说hello\nworld，返回json格式',
+            'content': '介绍中国历史',
         }
     ],
     model="qwen/qwen3.6-flash",
     # stop="\n",
-    response_format={'type': 'json_object'},
+    max_tokens=16,
+    # response_format={'type': 'json_object'},
     extra_body={"reasoning": {"enabled": False}}
 )
 print(result)

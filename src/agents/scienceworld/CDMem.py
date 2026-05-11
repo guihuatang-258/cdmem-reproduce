@@ -55,6 +55,7 @@ class CDMemAgent:
         self.current_room = ''
 
     def run(self):
+        # 跑多个trial，每个trial跑多个环境，每个环境跑一个trajectory
         for trial_idx in range(self.start_trial_num, self.num_trials):
             self.logger.log_world_start(trial_idx)
             num_successes: int = 0
@@ -110,6 +111,7 @@ class CDMemAgent:
                     history_log, is_success, trial_idx, env_idx)
                 expert_trajectory = self.update_local_memory(
                     history_log, is_success, env_idx, task_description)
+                # * 将local和global memory写入日志。随着trail进行，两种memory会一直累加
                 self.logger.log_local_memory(trial_idx)
                 self.update_global_memory(
                     expert_trajectory, env_idx, trial_idx)
@@ -124,6 +126,7 @@ class CDMemAgent:
         cur_step = 0
         print(init_ob)
         score = 0
+        # 每条trajectory开始时重置短期记忆
         self.short_memory.reset()
         while cur_step < self.max_steps:
             infer_prompt = self.build_infer_prompt(
@@ -131,65 +134,121 @@ class CDMemAgent:
 
             # print('\n\n=== Infer prompt begin ===\n', infer_prompt, '\n\n=== Infer prompt end===\n')
 
-            system_msg = """You are the agent to interact in a household to solve a task.
-                    This is a big house with following rooms:
-                    ["hallway", "greenhouse", "kitchen", "bathroom", "outside", "workshop", "art studio", "foundry", "bedroom", "living room"]
-                    
-                    These rooms are connected by doors, and you can move to a room by saying "go to the room" when door is open.
-                    "hallway" has doors to ["kitchen", "bathroom", "bedroom", "workshop", "art studio", "living room", "greenhouse"].
-                    "kitchen" has a door to "outside", "greenhouse" has a door to "outside" and a door to "hallway"
-                    "foundry" has a door to "outside" only.
-                    
-                    Please Note:
-                    You need to output your thinking/reason/plan to solve the task, and select a correct action to execute.
-                    Please read the current task description very carefully and never misunderstand your task. Your thinking should strictly follows the current task.
-                    You need to go to the target room first before you manage some object.
-                    And you should clearly know your current room (where you are) and the target room (where to go), try to arrive the target location first.
-                    
-                    You selected action will be executed in the environment. Please be carefully design the correct action command.  
-                    Here are some action guides:
-                    
-                    action_type_description = [
-                        {"action_type": "wait",
-                         "desc": "wait for something to be done, for example, an object on stove to be boiled. Usage: 'wait#', where # is the number of turns you want to wait. only 'wait' means wait for 10 iterations."},
-                        {"action_type": "read", "desc": "read an object such as a recipe or a book. Usage: 'read recipe in inventory'"},
-                        {"action_type": "pick up", "desc": "pick up an object and put it into your inventory. Usage: 'pick up metal pot'"},
-                        {"action_type": "open",
-                         "desc": "open an object with doors before you search or put things in it. Usage: 'open door in kitchen', 'open drawer in counter', 'open glass jar'"},
-                        {"action_type": "activate",
-                         "desc": "activate and turn on an object such as sink (then the water flow from it) or stove, so that you can use it. Usage: 'activate stove', 'activate sink'"},
-                        {"action_type": "deactivate", "desc": "deactivate turn off the object"},
-                        {"action_type": "examine",
-                         "desc": "look at an object carefully. Note that you cannot examine a location. You can only 'examine something' or 'examine substance in something' Usage: 'examine substance in metal pot', 'examine ice'"},
-                        {"action_type": "move", "desc": "move/place the object to a place. Usage: 'move cupboard to red box'"},
-                        {"action_type": "use",
-                         "desc": "use an object A on object B, for example, For example, to check the temperature: Usage: 'use thermometer in inventory on ice', 'use thermometer in inventory on substance in metal pot'"},
-                        {"action_type": "pour",
-                         "desc": "pour the object A into the container B. Usage: 'pour jug into flower pot 4'"},
-                        {"action_type": "focus",
-                         "desc": "focus on an important object that are required by the task description (e.g., a substance, a plant, an animal, and so on). Usage: 'focus on cupboard'"},
-                    ]
-                    
-                    Please note, interactive trajectory is realtime feedback from environment. You are required to interact with the environment to complete the task.
-                    So, you need to output your thinking and an action, and the action will be executed in the environment.
-                    But if your action is invalid, you will receive two types of feedback:
-                    1. 'No known action matches that input.' means the environment can not execute the command. It may be due to an inability to reach the target position or a syntax error. Please rethink and output the correct action.
-                    2. 'Ambiguous request: Please enter the number for the action you intended (or blank to cancel): <followed by some options with their index numbers. Format is #: xxx>', In this situation, you need to choose the correct action by entering the number of the option index you intended. This means your action should be a number. An example of an option: '0: move apple seed'
-                    
-                    Please using json format to output, e.g.,
-                    
-                    The json output is:
-                    {
-                        "reason": "To solve the task, I need to be in same location as water and have substance alone in a single container",
-                        "action": "go to the kitchen"
-                    }
-                    
-                    or:
-                    {
-                        "reason": "To solve the task, I need to..."
-                        "action": "0"
-                    }
-                    """
+            system_msg = """
+You are controlling a ScienceWorld household agent. At each turn, output exactly one JSON object with two fields: "reason" and "action". The "reason" field should contain brief task-focused reasoning. The "action" field must contain exactly one executable ScienceWorld action.
+
+Available rooms:
+["hallway", "greenhouse", "kitchen", "bathroom", "outside", "workshop", "art studio", "foundry", "bedroom", "living room"]
+
+Room connection rules:
+You usually need to open the target door before moving through it.
+- "hallway" has doors to ["kitchen", "bathroom", "bedroom", "workshop", "art studio", "living room", "greenhouse"].
+- "kitchen" has a door to "outside", "greenhouse" has a door to "outside" and a door to "hallway"
+- "foundry" has a door to "outside" only.
+
+Available action templates (Note that <object> should be a simple object without location description, e.g., "metal pot" instead of "metal pot in kitchen"; "apple seed" instead of "apple seed in flower pot"):
+[
+    {"action_type": "wait", "desc": "wait for something to be done for 10 iterations, for example, an object on stove to be boiled. Usage: 'wait'"},
+    {"action_type": "wait1", "desc": "wait for something to be done for 1 iteration, for example, an object on stove to be boiled. Usage: 'wait1'"},
+    {"action_type": "read <object>", "desc": "read an object such as a recipe or a book. Usage: 'read recipe in inventory'"},
+    {"action_type": "pick up <object>", "desc": "pick up an object and put it into your inventory. Usage: 'pick up metal pot'"},
+    {"action_type": "open <object>",
+        "desc": "open an object with doors before you search or put things in it. Usage: 'open door in kitchen', 'open drawer in counter', 'open glass jar'"},
+    {"action_type": "activate <object>",
+        "desc": "activate and turn on an object such as sink (then the water flow from it) or stove, so that you can use it. Usage: 'activate stove', 'activate sink'"},
+    {"action_type": "deactivate <object>", "desc": "deactivate turn off the object"},
+    {"action_type": "examine <object>",
+        "desc": "look at an object carefully. Note that you cannot examine a location. You can only 'examine something' or 'examine substance in something' Usage: 'examine substance in metal pot', 'examine ice'"},
+    {"action_type": "move <object> to <object>", "desc": "move/place the object to a place. Usage: 'move cupboard to red box'"},
+    {"action_type": "use <object> on <object>",
+        "desc": "use an object A on object B, for example, For example, to check the temperature: Usage: 'use thermometer in inventory on ice', 'use thermometer in inventory on substance in metal pot'"},
+    {"action_type": "pour <object A> into <container B>",
+        "desc": "pour the object A into the container B. Usage: 'pour jug into flower pot 4'"},
+    {"action_type": "focus on <object>",
+        "desc": "focus on an important object that are required by the task description (e.g., a substance, a plant, an animal, and so on). Usage: 'focus on cupboard'"},
+]
+
+Action format rules:
+- Use exact object names from the observation or inventory, such as "metal pot", "substance in metal pot", "thermometer in inventory", or "door to kitchen".
+- Do not invent object names, room names, or environment feedback.
+- Read the task carefully and keep the action strictly aligned with the current task.
+- Move to the target room before manipulating objects in that room.
+- If the previous observation says "No known action matches that input.", choose a different action that matches the available action templates.
+- If the previous observation says "Ambiguous request: Please enter the number for the action you intended" and lists options like "0: move apple seed", output the intended option index as the action, for example "0".
+
+Required JSON format like:
+{
+    "reason": "To solve the task, I need to be in the same location as water and have the substance alone in a single container.",
+    "action": "go to the kitchen"
+}
+
+or:
+{
+    "reason": "The environment is asking me to choose the intended numbered option.",
+    "action": "0"
+}
+""".strip()
+
+            system_msg_old = """
+You are the agent to interact in a household to solve a task.
+This is a big house with following rooms:
+["hallway", "greenhouse", "kitchen", "bathroom", "outside", "workshop", "art studio", "foundry", "bedroom", "living room"]
+
+These rooms are connected by doors, and you can move to a room by saying "go to the room" when door is open.
+"hallway" has doors to ["kitchen", "bathroom", "bedroom", "workshop", "art studio", "living room", "greenhouse"].
+"kitchen" has a door to "outside", "greenhouse" has a door to "outside" and a door to "hallway"
+"foundry" has a door to "outside" only.
+
+Please Note:
+You need to output your thinking/reason/plan to solve the task, and select a correct action to execute.
+Please read the current task description very carefully and never misunderstand your task. Your thinking should strictly follows the current task.
+You need to go to the target room first before you manage some object.
+And you should clearly know your current room (where you are) and the target room (where to go), try to arrive the target location first.
+
+You selected action will be executed in the environment. Please be carefully design the correct action command.  
+Here are some action guides:
+
+action_type_description = [
+    {"action_type": "wait", "desc": "wait for something to be done for 10 iterations, for example, an object on stove to be boiled. Usage: 'wait'"},
+    {"action_type": "wait1", "desc": "wait for something to be done for 1 iteration, for example, an object on stove to be boiled. Usage: 'wait1'"},
+    {"action_type": "read <object>", "desc": "read an object such as a recipe or a book. Usage: 'read recipe in inventory'"},
+    {"action_type": "pick up <object>", "desc": "pick up an object and put it into your inventory. Usage: 'pick up metal pot'"},
+    {"action_type": "open <object>",
+        "desc": "open an object with doors before you search or put things in it. Usage: 'open door in kitchen', 'open drawer in counter', 'open glass jar'"},
+    {"action_type": "activate <object>",
+        "desc": "activate and turn on an object such as sink (then the water flow from it) or stove, so that you can use it. Usage: 'activate stove', 'activate sink'"},
+    {"action_type": "deactivate <object>", "desc": "deactivate turn off the object"},
+    {"action_type": "examine <object>",
+        "desc": "look at an object carefully. Note that you cannot examine a location. You can only 'examine something' or 'examine substance in something' Usage: 'examine substance in metal pot', 'examine ice'"},
+    {"action_type": "move <object> to <object>", "desc": "move/place the object to a place. Usage: 'move cupboard to red box'"},
+    {"action_type": "use <object> on <object>",
+        "desc": "use an object A on object B, for example, For example, to check the temperature: Usage: 'use thermometer in inventory on ice', 'use thermometer in inventory on substance in metal pot'"},
+    {"action_type": "pour <object A> into <container B>",
+        "desc": "pour the object A into the container B. Usage: 'pour jug into flower pot 4'"},
+    {"action_type": "focus on <object>",
+        "desc": "focus on an important object that are required by the task description (e.g., a substance, a plant, an animal, and so on). Usage: 'focus on cupboard'"},
+]
+
+Please note, interactive trajectory is realtime feedback from environment. You are required to interact with the environment to complete the task.
+So, you need to output your thinking and an action, and the action will be executed in the environment.
+But if your action is invalid, you will receive two types of feedback:
+1. 'No known action matches that input.' means the environment can not execute the command. It may be due to an inability to reach the target position or a syntax error. Please rethink and output the correct action.
+2. 'Ambiguous request: Please enter the number for the action you intended (or blank to cancel): <followed by some options with their index numbers. Format is #: xxx>', In this situation, you need to choose the correct action by entering the number of the option index you intended. This means your action should be a number. An example of an option: '0: move apple seed'
+
+Please using json format to output, e.g.,
+
+The json output is:
+{
+    "reason": "To solve the task, I need to be in same location as water and have substance alone in a single container",
+    "action": "go to the kitchen"
+}
+
+or:
+{
+    "reason": "To solve the task, I need to..."
+    "action": "0"
+}
+            """
 
             response = self.llm(
                 infer_prompt, sys_msg=system_msg, use_json=True)
@@ -213,10 +272,13 @@ class CDMemAgent:
                 response['reason'] = 'No reason provided'
 
             reason = response['reason']
+            print(f'🤔Reason: {reason}')
+
             action = response['action'].replace(
                 ' the ', ' ').replace('  ', ' ')
             # print('\n\n=== GPT action begin ===\n', response, '\n\n=== GPT action end ===\n')
             action = action.replace('(', '').replace(')', '')
+            print(f'🏃Action: {action}\n')
             # action = self.env.action_parser(action)
             self.short_memory.add("think", reason)
             self.short_memory.add("action", action)
@@ -224,7 +286,6 @@ class CDMemAgent:
                 [action], self.env, info['look'], recent_actions=self.short_memory.recent_actions())
             # print('\n\n=== Correct action begin ===\n', action, '\n\n=== Correct action end ===\n')
             observation, reward, done, info = self.env.step(action)
-            print(f'🏃Action: {action}')
             print(f'🌍Observation: {observation}')
             if info['score']:
                 score = info['score']
