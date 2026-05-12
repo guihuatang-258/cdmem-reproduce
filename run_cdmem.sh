@@ -1,8 +1,8 @@
 python src/main.py \
         --num_trials 5 \
-        --num_envs 30 \
-        --run_name "cdmem_qwen3.6-flash_20_steps" \
-        --model "qwen/qwen3.6-flash"  \
+        --num_envs 20 \
+        --run_name "cdmem_qwen3.5-flash-02-23_20_steps" \
+        --model "qwen/qwen3.5-flash-02-23"  \
         --agent "cdmem"   \
         --env "alfworld" \
         --max_steps 20

@@ -17,16 +17,19 @@ PREFIXES = {
     'pick_two_obj': 'puttwo'
 }
 
+
 class CDMemFewshotBuilder:
     def __init__(self):
         pass
-    
+
     def _add_observation_prefix(self, text):
         """给 fewshot 中的 observation 行添加 'Observation: ' 前缀"""
         lines = text.split('\n')
         result = []
         # 跳过前两行，因为它们是环境描述和任务描述
         for line in lines[2:]:
+            if line.strip().startswith('##'):
+                continue
             # 如果行以 '>' 开头（action）或为空行或以 'Observation:'，保持不变
             if line.startswith('>') or line.strip() == '' or line.startswith('Observation:'):
                 result.append(line)
@@ -34,39 +37,44 @@ class CDMemFewshotBuilder:
             else:
                 result.append('Observation: ' + line)
         return '\n'.join(result)
-    
+
     # def get_inference_fewshots(self, name, env_description , task_description, global_memory, logging_dir):
     #     for i, (k, v) in enumerate(PREFIXES.items()):
     #         if name.startswith(k):
     #             return d[f'react_{v}_1'] + d[f'react_{v}_0']
-    
-    def get_inference_fewshots(self, name, env_description , task_description, global_memory, logging_dir):
+
+    def get_inference_fewshots(self, name, env_description, task_description, global_memory, logging_dir):
         num_examples = 2
         example_ids = []
         task_memory = global_memory.task_memory
         env_memory = global_memory.env_memory
         task_type = self._convert_task_description(task_description)
         if task_type in task_memory and 'success' in task_memory[task_type]:
-            task_all_traj = copy.deepcopy(task_memory[task_type]['success']['all_traj'])
+            task_all_traj = copy.deepcopy(
+                task_memory[task_type]['success']['all_traj'])
             task_all_traj = [tuple(traj.values()) for traj in task_all_traj]
             if env_description in env_memory:
-                env_all_traj = copy.deepcopy(env_memory[env_description]['all_traj'])
+                env_all_traj = copy.deepcopy(
+                    env_memory[env_description]['all_traj'])
                 env_all_traj = [tuple(traj.values()) for traj in env_all_traj]
                 intersection = list(set(task_all_traj) & set(env_all_traj))
                 if len(intersection) >= num_examples:
                     choose_traj = random.sample(intersection, num_examples)
                     example_ids.extend(choose_traj)
-                    task_all_traj = [traj for traj in task_all_traj if traj not in choose_traj]
+                    task_all_traj = [
+                        traj for traj in task_all_traj if traj not in choose_traj]
                     num_examples = 0
                 else:
                     example_ids.extend(intersection)
                     num_examples -= len(intersection)
-                    task_all_traj = [traj for traj in task_all_traj if traj not in intersection]
+                    task_all_traj = [
+                        traj for traj in task_all_traj if traj not in intersection]
             if num_examples > 0:
                 if len(task_all_traj) >= num_examples:
                     choose_traj = random.sample(task_all_traj, num_examples)
                     example_ids.extend(choose_traj)
-                    task_all_traj = [traj for traj in task_all_traj if traj not in choose_traj]
+                    task_all_traj = [
+                        traj for traj in task_all_traj if traj not in choose_traj]
                     num_examples = 0
                 else:
                     example_ids.extend(task_all_traj)
@@ -81,28 +89,32 @@ class CDMemFewshotBuilder:
             default_examples = random.sample(default_examples, num_examples)
             examples.extend(default_examples)
         if len(examples) != 2:
-            import pdb;pdb.set_trace()
+            import pdb
+            pdb.set_trace()
         return self._add_observation_prefix('\n\n'.join(examples))
-                         
+
     def _ids2example(self, logging_dir, example_idx):
         env_idx, trial_idx = example_idx
         trial_path = os.path.join(logging_dir, f'trial_{trial_idx}.log')
         with open(trial_path, 'r') as f:
             trial_log = f.read()
-        example_log = trial_log.split('#####\n\n#####')[env_idx].split("Here is the task:")[-1].replace("STATUS: OK", '').replace("#####", '').strip()
+        example_log = trial_log.split('#####\n\n#####')[env_idx].split(
+            "Here is the task:")[-1].replace("STATUS: OK", '').replace("#####", '').strip()
+        example_log = example_log.replace(
+            '## Task Interactive Trajectory:', '').strip()  # 去除prompt标记
         return example_log
 
     def _default_inference_fewshots(self, name):
         for i, (k, v) in enumerate(PREFIXES.items()):
             if name.startswith(k):
-                examples = [d[f'react_{v}_1'] , d[f'react_{v}_0']]
+                examples = [d[f'react_{v}_1'], d[f'react_{v}_0']]
                 return [self._add_observation_prefix(ex) for ex in examples]
-        
+
     def get_expert_fewshots(self):
         with open("./prompts/expert_few_shot_example.txt", 'r') as f:
             FEW_SHOT_EXAMPLES = f.read()
         return FEW_SHOT_EXAMPLES
-                
+
     def get_reflection_fewshots(self, is_success):
         if is_success:
             with open("./prompts/reflection_few_shot_example_success.txt", 'r') as f:
@@ -111,7 +123,7 @@ class CDMemFewshotBuilder:
             with open("./prompts/reflection_few_shot_example_fail.txt", 'r') as f:
                 FEW_SHOT_EXAMPLES = f.read()
         return FEW_SHOT_EXAMPLES
-    
+
     def get_summary_fewshots(self, mode, is_success=None):
         if mode == 'env':
             with open("./prompts/env_few_shot_example.txt", 'r') as f:
@@ -128,7 +140,7 @@ class CDMemFewshotBuilder:
                 return FEW_SHOT_EXAMPLES
         else:
             raise ValueError(f"Unseen mode type: {mode}")
-        
+
     def _convert_task_description(self, task_description):
         if "put" in task_description:
             if "heat" in task_description or "hot" in task_description:
@@ -147,4 +159,3 @@ class CDMemFewshotBuilder:
             return "look_at_obj"
         else:
             raise ValueError(f"Unseen type: {task_description}")
-            
