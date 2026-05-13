@@ -5,6 +5,8 @@ from openai import OpenAI
 import numpy as np
 import chromadb
 from chromadb.config import Settings
+import dotenv
+dotenv.load_dotenv()
 
 
 class ShortMemory:
@@ -203,10 +205,13 @@ class GlobalMemory:
             if task_type in self.task_memory:
                 item_idx = 1
                 if 'success' in self.task_memory[task_type]:
+                    # 根据task_type从成功记录中召回action_guidance
                     split_summary = self._split_summary(
                         self.task_memory[task_type]['success']['action_guidance'])
+                    # 如果使用向量数据库，计算重复度score，重复度越高，说明越相似
                     if self.is_vector:
                         repeat_scores = []
+                        # 把split_summary中的每个item转换为embedding，查询向量数据库，计算重复度score
                         collection = self.task_db[task_type]['success']
                         for summary_item in split_summary:
                             summary_item_embedding = self.db.get_embedding(

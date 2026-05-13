@@ -115,13 +115,13 @@ Available action templates:
 - cool <object> with <receptacle>
 - slice <object> with <object>
 
-Use exact object and receptacle names with their numbers from observations, such as "apple 1", "drawer 2", or "sinkbasin 1". Do not invent object names, receptacle names, ids, or environment feedback.
+Note: Use exact object and receptacle names with their numbers from observations, such as "apple 1", "drawer 2", or "sinkbasin 1". Do not invent object names, receptacle names, ids, or environment feedback.
 
 Please note, the task interactive trajectory is realtime feedback from environment. You are required to interact with the environment to complete the task.
 So, you need to output your thinking or a valid action, and the action will be executed in the environment.
-
-If you output your thinking, the environment will simple respond with "OK".
-If you meet operation failure, the environment will return "Nothing happens", which means the current observation doesn't match the current action.
+- If you output your thinking, the environment will simple respond with "OK".
+- If you output a valid action, the environment will return a new observation.
+- If you meet operation failure, the environment will return "Nothing happens", which means the current observation doesn't match the current action. Please rethink and choose a different action.
 """.strip()
         # 循环直到游戏结束或耗尽最大step数
         while cur_step < self.max_steps:

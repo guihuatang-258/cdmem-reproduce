@@ -1,21 +1,12 @@
 python src/main.py \
         --num_trials 5 \
-        --num_envs 20 \
-        --run_name "cdmem_qwen3.5-flash-02-23_20_steps" \
+        --num_envs 30 \
+        --run_name "cdmem_qwen3.5-flash-02-23_20_steps_vector" \
         --model "qwen/qwen3.5-flash-02-23"  \
         --agent "cdmem"   \
         --env "alfworld" \
-        --max_steps 20
-# python src/main.py \
-#         --num_trials 3 \
-#         --num_envs 15 \
-#         --run_name "cdmem_qwen3.5-flash-02-23_20_steps" \
-#         --model "qwen/qwen3.5-flash-02-23"  \
-#         --agent "cdmem"   \
-#         --env "alfworld" \
-#         --max_steps 20
-
-
+        --max_steps 20 \
+        --is_vector
         # --is_resume \
         # --resume_dir logs/cdmem_0503_100540 \
         # --start_trial_num 0
