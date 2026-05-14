@@ -2,6 +2,7 @@ import os
 import json
 import random
 import copy
+import re
 
 FOLDER = './prompts'
 PROMPT_FILE = 'alfworld_3prompts.json'
@@ -37,6 +38,18 @@ class CDMemFewshotBuilder:
             else:
                 result.append('Observation: ' + line)
         return '\n'.join(result)
+
+    def _normalize_place_actions(self, text):
+        def repl(match):
+            prefix, obj, receptacle = match.groups()
+            return f"{prefix}move {obj.strip()} to {receptacle.strip()}"
+
+        return re.sub(
+            r"(?m)^(>\s*)put\s+(.+?)\s+(?:in/on|into|in|on)\s+(.+)$",
+            repl,
+            text,
+            flags=re.IGNORECASE,
+        )
 
     # def get_inference_fewshots(self, name, env_description , task_description, global_memory, logging_dir):
     #     for i, (k, v) in enumerate(PREFIXES.items()):
@@ -91,7 +104,7 @@ class CDMemFewshotBuilder:
         if len(examples) != 2:
             import pdb
             pdb.set_trace()
-        return self._add_observation_prefix('\n\n'.join(examples))
+        return self._normalize_place_actions(self._add_observation_prefix('\n\n'.join(examples)))
 
     def _ids2example(self, logging_dir, example_idx):
         env_idx, trial_idx = example_idx
@@ -102,13 +115,13 @@ class CDMemFewshotBuilder:
             "Here is the task:")[-1].replace("STATUS: OK", '').replace("#####", '').strip()
         example_log = example_log.replace(
             '## Task Interactive Trajectory:', '').strip()  # 去除prompt标记
-        return example_log
+        return self._normalize_place_actions(example_log)
 
     def _default_inference_fewshots(self, name):
         for i, (k, v) in enumerate(PREFIXES.items()):
             if name.startswith(k):
                 examples = [d[f'react_{v}_1'], d[f'react_{v}_0']]
-                return [self._add_observation_prefix(ex) for ex in examples]
+                return [self._normalize_place_actions(self._add_observation_prefix(ex)) for ex in examples]
 
     def get_expert_fewshots(self):
         with open("./prompts/expert_few_shot_example.txt", 'r') as f:

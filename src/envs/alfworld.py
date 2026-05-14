@@ -1,5 +1,14 @@
 import yaml
 import importlib
+import os
+import sys
+
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+LOCAL_ALFWORLD_SRC = os.path.join(REPO_ROOT, "data", "alfworld")
+if LOCAL_ALFWORLD_SRC not in sys.path:
+    sys.path.insert(0, LOCAL_ALFWORLD_SRC)
+os.environ.setdefault("ALFWORLD_DATA", os.path.join(REPO_ROOT, "data"))
+
 import alfworld
 # import alfworld.agents.environment
 from alfworld.agents.environment import get_environment

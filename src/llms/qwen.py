@@ -12,6 +12,8 @@ from typing import Optional, List
 from dotenv import load_dotenv
 load_dotenv()
 
+print(os.getenv('OPENAI_API_BASE_URL'))
+
 
 class OpenAICompatibleWrapper:
     """

@@ -98,24 +98,22 @@ At each turn, output exactly ONE line and do not output observations, explanatio
 
 Available action templates:
 - think: <brief private reasoning>
-- look
-- inventory
-- go to <receptacle>
-- open <receptacle>
-- close <receptacle>
-- examine <object_or_receptacle>
-- take <object> from <receptacle>
-- move <object> to <receptacle>
-- put <object> in/on <receptacle>
-- put <object> into <container_object>
-- put <receptacle_object> in <receptacle>
-- use <object>
-- heat <object> with <receptacle>
-- clean <object> with <receptacle>
-- cool <object> with <receptacle>
-- slice <object> with <object>
+- look: look around your current location
+- inventory: check your current inventory
+- go to (receptacle): move to a receptacle
+- open (receptacle): open a receptacle
+- close (receptacle): close a receptacle
+- take (object) from (receptacle): take an object from a receptacle
+- move (object) to (receptacle): place an object in or on a receptacle
+- examine (something): examine a receptacle or an object
+- use (object): use an object
+- heat (object) with (receptacle): heat an object using a receptacle
+- clean (object) with (receptacle): clean an object using a receptacle
+- cool (object) with (receptacle): cool an object using a receptacle
+- slice (object) with (object): slice an object using a sharp object
 
 Note: Use exact object and receptacle names with their numbers from observations, such as "apple 1", "drawer 2", or "sinkbasin 1". Do not invent object names, receptacle names, ids, or environment feedback.
+Important: Do not output "put ..." commands. In this ALFWorld TextWorld environment, placing an object must use "move (object) to (receptacle)", for example "move apple 1 to drawer 2".
 
 Please note, the task interactive trajectory is realtime feedback from environment. You are required to interact with the environment to complete the task.
 So, you need to output your thinking or a valid action, and the action will be executed in the environment.
@@ -132,6 +130,7 @@ So, you need to output your thinking or a valid action, and the action will be e
                 infer_prompt, stop=["\n"], sys_msg=action_sys_msg).strip()
             # 解析动作，清楚多余的标记及统一动作
             action = self.env.action_parser(action)
+            action = self.normalize_place_action(action)
             # 没走一步，把action和observation加入short memory
             self.short_memory.add("action", action)
             observation, reward, done, exhausted, info = self.env.step(action)
@@ -153,6 +152,13 @@ So, you need to output your thinking or a valid action, and the action will be e
             cur_step += 1
         history_log = self.build_infer_prompt(env_idx, init_ob)
         return history_log, False
+
+    def normalize_place_action(self, action):
+        match = re.match(r"^put\s+(.+?)\s+(?:in/on|into|in|on)\s+(.+)$", action, re.IGNORECASE)
+        if match:
+            obj, receptacle = match.groups()
+            return f"move {obj.strip()} to {receptacle.strip()}"
+        return action
 
     def update_local_memory(self, history_log, is_success, env_idx):
         if not self.local_memory.is_skip(env_idx):
