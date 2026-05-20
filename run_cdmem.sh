@@ -1,6 +1,6 @@
 python src/main.py \
-        --num_trials 2 \
-        --num_envs 50 \
+        --num_trials 5 \
+        --num_envs 134 \
         --run_name "cdmem_qwen3.5-flash-02-23_20_steps_vector" \
         --model "qwen/qwen3.5-flash-02-23"  \
         --agent "cdmem"   \
