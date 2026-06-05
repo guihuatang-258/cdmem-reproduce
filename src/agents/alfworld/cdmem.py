@@ -162,6 +162,7 @@ So, you need to output your thinking or a valid action, and the action will be e
 
     def update_local_memory(self, history_log, is_success, env_idx):
         if not self.local_memory.is_skip(env_idx):
+            # 每次 trial 结束后，LLM 生成 reflection，再放进 expert_trajectory，最后写入 local memory。
             expert_prompt = self.build_expert_prompt(history_log)
             expert_result = self.llm(expert_prompt, max_tokens=512)
             print(f"🔍 [DEBUG] expert_result: {expert_result}")
@@ -179,11 +180,13 @@ So, you need to output your thinking or a valid action, and the action will be e
 
     def update_global_memory(self, expert_trajectory, env_idx, trial_idx):
         env_summary = task_summary = ''
+        
         env_query, task_query = self.build_summary_prompt(
             expert_trajectory, env_idx, trial_idx)
         if env_query:
             env_summary = self.llm(env_query, max_tokens=512)
             self.global_memory.add(env_summary, expert_trajectory, mode='env')
+        # 这里就是在生成action guidance，然后更新global memory
         if task_query:
             task_summary = self.llm(task_query, max_tokens=512)
             self.global_memory.add(

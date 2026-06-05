@@ -80,6 +80,7 @@ class GlobalMemory:
         increment_env, increment_task = {}, {}
         env_description = expert_trajectory['env']
         task_description = expert_trajectory['task']
+        # 根据expert_trajectory的task和is_success状态，存入global memory对应任务类型和 success/fail 集合
         task_type = self._convert_task_description(task_description)
         status = 'success' if expert_trajectory['is_success'] else 'fail'
         retrieve_idx = dict(env_idx=env_idx, trial_idx=trial_idx)
@@ -135,7 +136,8 @@ class GlobalMemory:
                                     action_guidance=self.task_memory[task_type][status]['action_guidance'],
                                     increment_action_guidance=increment_action_guidance
                                     )
-        # 计算increment的embedding
+        # 把 expert_trajectory 的reflection 做 embedding 存入 Chroma
+        # sample就是local memory 中存的 expert_trajectory
             if self.is_vector:
                 samples = self._get_samples(self.task_memory[task_type][status]['increment_traj'])
                 ids = [str(traj['trial_idx']) + '_' + str(traj['env_idx']) for traj in self.task_memory[task_type][status]['increment_traj']]
@@ -176,6 +178,7 @@ class GlobalMemory:
         else:
             raise ValueError(f"Unseen type: {task_description}")
     
+    # 更新global memory的环境记忆或任务记忆
     def add(self, summary, expert_trajectory, mode):
         env_description = expert_trajectory['env']
         task_description = expert_trajectory['task']
@@ -191,7 +194,9 @@ class GlobalMemory:
                 collection = self.task_db[task_type][status]
                 for summary_item in split_summary:
                     summary_item_embedding = self.db.get_embedding(summary_item)
+                    # 用split后的action guidance分别去查Chroma里的reflection
                     results = collection.query(query_embeddings=summary_item_embedding, n_results=collection.count())
+                    # 没有把查出来的 reflection 文本拿出来用，只用了 distances 算分数：
                     repeat_score = 1 / sum(results['distances'][0])
                     repeat_scores.append(repeat_score)
                 sorted_summary_score = sorted(zip(split_summary, repeat_scores), key=lambda pair: pair[1], reverse=True)
