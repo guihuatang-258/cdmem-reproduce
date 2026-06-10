@@ -37,6 +37,79 @@ class CDMemPromptBuilder:
 {short_memories}
 """
         return query
+
+    def get_ground_truth_inference_prompts(
+        self,
+        init_ob,
+        fewshots,
+        local_memories,
+        short_memories,
+        known_obs_history,
+        action_guidance_history,
+        stuck_context=None,
+    ):
+        query = f"""
+## Role: You are the ground-truth correction agent for an ALFWorld TextWorld task.
+
+## Mission: You are called only when the solver agent appears stuck, repetitive, or committed to a wrong next action. Your job is not to continue the solver's plan mechanically. Your job is to diagnose the current trajectory and output a better next step that can recover progress.
+
+## Decision Rules:
+1. First inspect the shared task trajectory and identify why the solver is stuck.
+2. Do not repeat the stuck action unless the observation has changed and repeating it is clearly necessary.
+3. Prefer an action that changes the state or obtains new information: look, inventory, go to a different receptacle, open a closed receptacle, take a visible required object, or move/heat/cool/clean/slice an already held object when appropriate.
+4. Use exact object and receptacle names with their numbers from observations, such as "pillow 1", "drawer 2", or "sinkbasin 1".
+5. Do not invent objects, receptacles, ids, or observations.
+6. Output exactly one line: either "think: <brief reason>" or one valid ALFWorld action.
+
+## Available Action Templates:
+- think: <brief private reasoning>
+- look
+- inventory
+- go to (receptacle)
+- open (receptacle)
+- close (receptacle)
+- take (object) from (receptacle)
+- move (object) to (receptacle)
+- put (object) in/on (receptacle)
+- examine (something)
+- use (object)
+- heat (object) with (receptacle)
+- clean (object) with (receptacle)
+- cool (object) with (receptacle)
+- slice (object) with (object)
+
+## Reference Examples:
+These examples show valid ALFWorld action-observation style. Use them for command format and task strategy, but prioritize correcting the current trajectory.
+
+{fewshots}
+"""
+# 先不加stuck_context
+#         if stuck_context:
+#             query += f"""
+
+# ## Solver Stuck Context:
+# {stuck_context}
+# """
+        if known_obs_history:
+            query += f"\nFunctions of Containers: {known_obs_history}"
+        if action_guidance_history:
+            query += f"\nAction Guidance:\n{action_guidance_history}"
+        if len(local_memories) > 0:
+            query += "\nPast Ground-Truth Reflections:"
+            for i, m in enumerate(local_memories):
+                query += f'\nTrial {i}:\n{m.strip()}'
+        query += f"""
+
+## Current Task:
+{init_ob}
+
+## Shared Task Interactive Trajectory:
+{short_memories}
+
+## Your Turn:
+Diagnose the solver's stuck point and output the single best next line.
+"""
+        return query
     # Expert Encoding
     # 专家编码指令，用于update local memories
 
