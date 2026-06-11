@@ -1,17 +1,19 @@
+from alfworld.agents.environment import get_environment
+import alfworld
 import yaml
 import importlib
 import os
+import re
 import sys
 
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+REPO_ROOT = os.path.abspath(os.path.join(
+    os.path.dirname(__file__), "..", ".."))
 LOCAL_ALFWORLD_SRC = os.path.join(REPO_ROOT, "data", "alfworld")
 if LOCAL_ALFWORLD_SRC not in sys.path:
     sys.path.insert(0, LOCAL_ALFWORLD_SRC)
 os.environ.setdefault("ALFWORLD_DATA", os.path.join(REPO_ROOT, "data"))
 
-import alfworld
 # import alfworld.agents.environment
-from alfworld.agents.environment import get_environment
 
 
 class AlfworldEnv:
@@ -37,10 +39,11 @@ class AlfworldEnv:
         if action.startswith('think:'):
             observation = 'OK.'
         exhausted = False
-        if self.last_action == action:
-            exhausted = True
-        else:
-            self.last_action = action
+        # ! 先注释掉exhausted，因为会和MAS冲突
+        # if self.last_action == action:
+        #     exhausted = True
+        # else:
+        #     self.last_action = action
         return observation, reward, done, exhausted, info
 
     def reset(self):
@@ -62,12 +65,17 @@ class AlfworldEnv:
         first_line = action.split('\n')[0]
         if ">" in first_line:
             first_line = first_line.replace(">", "").strip()
-        action_words = first_line.split(" ")
-        if "put" in action_words:
-            for i in range(len(action_words)):
-                if action_words[i].strip().lower() == "in" or action_words[i].strip().lower() == 'on':
-                    action_words[i] = "in/on"
-                    first_line = " ".join(action_words)
+        first_line = re.sub(r"^\[[^\]]+\]\s*", "", first_line).strip()
+        first_line = re.sub(r"\s+", " ", first_line).strip()
+        # 处理 put 动作，替换为 move 动作
+        put_match = re.match(
+            r"^put\s+(.+?)\s+(?:in/on|into|onto|in|on)\s+(.+)$",
+            first_line,
+            re.IGNORECASE,
+        )
+        if put_match:
+            obj, receptacle = put_match.groups()
+            first_line = f"move {obj.strip()} to {receptacle.strip()}"
         return first_line
 
 

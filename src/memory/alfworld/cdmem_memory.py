@@ -6,6 +6,7 @@ import numpy as np
 import chromadb
 from chromadb.config import Settings
 
+
 class ShortMemory:
     def __init__(self) -> None:
         self.history: List[Dict[str, str]] = []
@@ -32,39 +33,41 @@ class ShortMemory:
             if i != len(self.history) - 1:
                 s += '\n'
         return s
-    
+
+
 class LocalMemory:
     def __init__(self, num_envs):
         self.history: List[Dict[str, Any]] = []
         for i in range(num_envs):
-             self.history += [{
+            self.history += [{
                 'name': f'env_{i}',
                 'reflection': [],
                 'is_success': False,
                 'skip': False
             }]
-    
+
     def set_success(self, idx: int):
         self.history[idx]['is_success'] = True
-        
+
     def is_success(self, idx: int):
         return self.history[idx]['is_success']
-    
+
     def is_skip(self, idx: int):
         return self.history[idx]['skip']
-        
+
     def add(self, idx, input_dict):
         for key in input_dict:
             if key == 'reflection':
                 self.history[idx][key] += [input_dict[key]]
             else:
                 self.history[idx][key] = input_dict[key]
-    
+
     def recall(self, idx: int):
         return self.history[idx]['reflection']
 
+
 class GlobalMemory:
-    def __init__(self, logging_dir, is_vector, env_batch_size = 1, task_batch_size = 1):
+    def __init__(self, logging_dir, is_vector, env_batch_size=1, task_batch_size=1):
         self.env_memory = dict()
         self.task_memory = dict()
         self.task_memory_to_recall = dict()
@@ -75,8 +78,8 @@ class GlobalMemory:
         if self.is_vector:
             self.task_db = dict()
             self.db = Vectorizor()
-    
-    def short2long(self, expert_trajectory, env_idx, trial_idx): 
+
+    def short2long(self, expert_trajectory, env_idx, trial_idx):
         increment_env, increment_task = {}, {}
         env_description = expert_trajectory['env']
         task_description = expert_trajectory['task']
@@ -88,20 +91,22 @@ class GlobalMemory:
         # 判断是否属于好奇心
         env_curiocity = task_curiocity = False
         if env_description not in self.env_memory:
-            self.env_memory[env_description] = {'known_obs':'', 
-                                                'increment_traj':[],
-                                                'all_traj':[]
+            self.env_memory[env_description] = {'known_obs': '',
+                                                'increment_traj': [],
+                                                'all_traj': []
                                                 }
             env_curiocity = True
         self.env_memory[env_description]['increment_traj'].append(retrieve_idx)
         self.env_memory[env_description]['all_traj'].append(retrieve_idx)
         # 属于好奇心或重复，取出增量记忆进行反思。达到 batch_size 后触发 LLM 总结环境知识
         if env_curiocity or len(self.env_memory[env_description]['increment_traj']) > self.env_bs:
-            samples = self._get_samples(self.env_memory[env_description]['increment_traj'])
-            increment_known_obs = [sample['function'] for sample in samples if len(sample['function']) > 0 and sample['function'] != 'None']
+            samples = self._get_samples(
+                self.env_memory[env_description]['increment_traj'])
+            increment_known_obs = [sample['function'] for sample in samples if len(
+                sample['function']) > 0 and sample['function'] != 'None']
             if len(increment_known_obs) > 0:
                 increment_env = dict(known_obs=self.env_memory[env_description]['known_obs'],
-                                        increment_known_obs=increment_known_obs)
+                                     increment_known_obs=increment_known_obs)
             self.env_memory[env_description]['increment_traj'] = []
         # 更新task_memory
         # 判断是否属于好奇心
@@ -117,36 +122,45 @@ class GlobalMemory:
                 'all_traj': []
             }
             if self.is_vector:
-                self.task_db[task_type][status] = self.db.create_collection(name=task_type + '_' + status)
+                self.task_db[task_type][status] = self.db.create_collection(
+                    name=task_type + '_' + status)
             task_curiocity = True
-        self.task_memory[task_type][status]['increment_traj'].append(retrieve_idx)
+        self.task_memory[task_type][status]['increment_traj'].append(
+            retrieve_idx)
         self.task_memory[task_type][status]['all_traj'].append(retrieve_idx)
 
         # 属于好奇心或重复，取出增量记忆进行反思。达到 batch_size 后触发 LLM 总结任务知识
         if task_curiocity or len(self.task_memory[task_type][status]['increment_traj']) > self.task_bs:
-            samples = self._get_samples(self.task_memory[task_type][status]['increment_traj'])
+            samples = self._get_samples(
+                self.task_memory[task_type][status]['increment_traj'])
             increment_action_guidance = [(dict(
-                                                task=sample['task'],
-                                                my_actions=sample["action"],
-                                                is_success=sample["is_success"],
-                                                reflection=sample["reflection"][-1] if len(sample["reflection"]) > 0 else '', 
-                                                )
-                                        ) for sample in samples]
+                task=sample['task'],
+                my_actions=sample["action"],
+                is_success=sample["is_success"],
+                reflection=sample["reflection"][-1] if len(
+                    sample["reflection"]) > 0 else '',
+            )
+            ) for sample in samples]
             increment_task = dict(task_type=task_type,
-                                    action_guidance=self.task_memory[task_type][status]['action_guidance'],
-                                    increment_action_guidance=increment_action_guidance
-                                    )
+                                  action_guidance=self.task_memory[task_type][status]['action_guidance'],
+                                  increment_action_guidance=increment_action_guidance
+                                  )
         # 把 expert_trajectory 的reflection 做 embedding 存入 Chroma
         # sample就是local memory 中存的 expert_trajectory
             if self.is_vector:
-                samples = self._get_samples(self.task_memory[task_type][status]['increment_traj'])
-                ids = [str(traj['trial_idx']) + '_' + str(traj['env_idx']) for traj in self.task_memory[task_type][status]['increment_traj']]
-                sample_reflections = [sample["reflection"][-1] for sample in samples]
-                sample_reflection_embeddings = [self.db.get_embedding(reflection) for reflection in sample_reflections]
-                self.task_db[task_type][status].add(embeddings=sample_reflection_embeddings,ids=ids)
+                samples = self._get_samples(
+                    self.task_memory[task_type][status]['increment_traj'])
+                ids = [str(traj['trial_idx']) + '_' + str(traj['env_idx'])
+                       for traj in self.task_memory[task_type][status]['increment_traj']]
+                sample_reflections = [sample["reflection"][-1]
+                                      for sample in samples]
+                sample_reflection_embeddings = [self.db.get_embedding(
+                    reflection) for reflection in sample_reflections]
+                self.task_db[task_type][status].add(
+                    embeddings=sample_reflection_embeddings, ids=ids)
             self.task_memory[task_type][status]['increment_traj'] = []
         return increment_env, increment_task
-            
+
     def _convert_task_description(self, task_description):
         """
         将任务描述转换为任务类型
@@ -177,7 +191,7 @@ class GlobalMemory:
             return "look_at_obj"
         else:
             raise ValueError(f"Unseen type: {task_description}")
-    
+
     # 更新global memory的环境记忆或任务记忆
     def add(self, summary, expert_trajectory, mode):
         env_description = expert_trajectory['env']
@@ -193,19 +207,23 @@ class GlobalMemory:
                 repeat_scores = []
                 collection = self.task_db[task_type][status]
                 for summary_item in split_summary:
-                    summary_item_embedding = self.db.get_embedding(summary_item)
-                    # 用split后的action guidance分别去查Chroma里的reflection
-                    results = collection.query(query_embeddings=summary_item_embedding, n_results=collection.count())
-                    # 没有把查出来的 reflection 文本拿出来用，只用了 distances 算分数：
+                    summary_item_embedding = self.db.get_embedding(
+                        summary_item)
+                    # 用split后的action guidance分别去查Chroma里的reflections
+                    results = collection.query(
+                        query_embeddings=summary_item_embedding, n_results=collection.count())
+                    # 没有把查出来的 reflections 文本拿出来用，只用了 distances 算分数。分数是：和所有reflections的distances加起来，然后取倒数
+                    # 然后把分数拼在每条action_guidance 后面：
                     repeat_score = 1 / sum(results['distances'][0])
                     repeat_scores.append(repeat_score)
-                sorted_summary_score = sorted(zip(split_summary, repeat_scores), key=lambda pair: pair[1], reverse=True)
+                sorted_summary_score = sorted(
+                    zip(split_summary, repeat_scores), key=lambda pair: pair[1], reverse=True)
                 self.task_memory_to_recall[task_type][status] = sorted_summary_score
             else:
                 self.task_memory_to_recall[task_type][status] = split_summary
         else:
             raise ValueError(f"Unseen mode: {mode}")
-        
+
     def recall(self, env_description, task_description, max_len=6):
         env_recall = task_recall = ''
         # 根据环境描述精准召回环境记忆，env_description 必须完全相同才能命中
@@ -217,7 +235,7 @@ class GlobalMemory:
             task_type = self._convert_task_description(task_description)
             if task_type in self.task_memory_to_recall:
                 item_idx = 0
-                if 'success' in self.task_memory_to_recall[task_type]:        
+                if 'success' in self.task_memory_to_recall[task_type]:
                     split_summary = self.task_memory_to_recall[task_type]['success']
                     success_summary_num = min(len(split_summary), max_len//2)
                     for i in range(success_summary_num):
@@ -228,21 +246,23 @@ class GlobalMemory:
                         item_idx += 1
                 if 'fail' in self.task_memory[task_type]:
                     split_summary = self.task_memory_to_recall[task_type]['fail']
-                    fail_summary_num = min(len(split_summary), max_len-item_idx)
+                    fail_summary_num = min(
+                        len(split_summary), max_len-item_idx)
                     for i in range(fail_summary_num):
                         if self.is_vector:
                             task_recall += f"{item_idx}. {split_summary[i][0]} {{{round(split_summary[i][1], 2)}}}\n"
                         else:
                             task_recall += f"{item_idx}. {split_summary[i]}\n"
                         item_idx += 1
-        return env_recall , task_recall
-    
+        return env_recall, task_recall
+
     def _get_samples(self, trajs):
         samples = []
         for retrieve_idx in trajs:
             sample_trial_idx = retrieve_idx['trial_idx']
             sample_env_idx = retrieve_idx['env_idx']
-            sample_path = os.path.join(self.logging_dir, f'local_memory_trial_{sample_trial_idx}.json')
+            sample_path = os.path.join(
+                self.logging_dir, f'local_memory_trial_{sample_trial_idx}.json')
             with open(sample_path, 'r') as f:
                 sample_list = json.load(f)
             samples.append(sample_list[sample_env_idx])
@@ -250,21 +270,25 @@ class GlobalMemory:
 
     def _split_summary(self, summary):
         lines = summary.split('\n')
-        result = [line.split('. ', 1)[1] for line in lines if len(line.split('. ')) > 1]
+        result = [line.split('. ', 1)[1]
+                  for line in lines if len(line.split('. ')) > 1]
         return result
-        
+
+
 class Vectorizor:
     def __init__(self):
         self.embed_client = OpenAI(
-        base_url=os.getenv('OPENAI_API_BASE_URL') if 'OPENAI_API_BASE_URL' in os.environ else None,
-        api_key=os.getenv('OPENAI_API_KEY'),
+            base_url=os.getenv(
+                'OPENAI_API_BASE_URL') if 'OPENAI_API_BASE_URL' in os.environ else None,
+            api_key=os.getenv('OPENAI_API_KEY'),
         )
-        self.chroma_client = chromadb.Client(settings=Settings(allow_reset=True))
+        self.chroma_client = chromadb.Client(
+            settings=Settings(allow_reset=True))
         self.chroma_client.reset()
-    
+
     def get_embedding(self, text, model="text-embedding-3-small"):
         return self.embed_client.embeddings.create(input=text, model=model).data[0].embedding
-    
+
     def create_collection(self, name):
         collection = self.chroma_client.create_collection(name)
         return collection

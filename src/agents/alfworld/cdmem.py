@@ -4,7 +4,7 @@ import json
 import re
 import itertools
 
-from typing import List, Callable
+# from typing import List, Callable
 
 
 class CDMemAgent:
@@ -154,7 +154,8 @@ So, you need to output your thinking or a valid action, and the action will be e
         return history_log, False
 
     def normalize_place_action(self, action):
-        match = re.match(r"^put\s+(.+?)\s+(?:in/on|into|in|on)\s+(.+)$", action, re.IGNORECASE)
+        match = re.match(
+            r"^put\s+(.+?)\s+(?:in/on|into|in|on)\s+(.+)$", action, re.IGNORECASE)
         if match:
             obj, receptacle = match.groups()
             return f"move {obj.strip()} to {receptacle.strip()}"
@@ -180,7 +181,7 @@ So, you need to output your thinking or a valid action, and the action will be e
 
     def update_global_memory(self, expert_trajectory, env_idx, trial_idx):
         env_summary = task_summary = ''
-        
+
         env_query, task_query = self.build_summary_prompt(
             expert_trajectory, env_idx, trial_idx)
         if env_query:

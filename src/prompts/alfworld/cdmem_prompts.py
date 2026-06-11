@@ -37,6 +37,7 @@ class CDMemPromptBuilder:
 {short_memories}
 """
         return query
+    # 适配ground truth agent的推理指令
 
     def get_ground_truth_inference_prompts(
         self,
@@ -49,35 +50,6 @@ class CDMemPromptBuilder:
         stuck_context=None,
     ):
         query = f"""
-## Role: You are the ground-truth correction agent for an ALFWorld TextWorld task.
-
-## Mission: You are called only when the solver agent appears stuck, repetitive, or committed to a wrong next action. Your job is not to continue the solver's plan mechanically. Your job is to diagnose the current trajectory and output a better next step that can recover progress.
-
-## Decision Rules:
-1. First inspect the shared task trajectory and identify why the solver is stuck.
-2. Do not repeat the stuck action unless the observation has changed and repeating it is clearly necessary.
-3. Prefer an action that changes the state or obtains new information: look, inventory, go to a different receptacle, open a closed receptacle, take a visible required object, or move/heat/cool/clean/slice an already held object when appropriate.
-4. Use exact object and receptacle names with their numbers from observations, such as "pillow 1", "drawer 2", or "sinkbasin 1".
-5. Do not invent objects, receptacles, ids, or observations.
-6. Output exactly one line: either "think: <brief reason>" or one valid ALFWorld action.
-
-## Available Action Templates:
-- think: <brief private reasoning>
-- look
-- inventory
-- go to (receptacle)
-- open (receptacle)
-- close (receptacle)
-- take (object) from (receptacle)
-- move (object) to (receptacle)
-- put (object) in/on (receptacle)
-- examine (something)
-- use (object)
-- heat (object) with (receptacle)
-- clean (object) with (receptacle)
-- cool (object) with (receptacle)
-- slice (object) with (object)
-
 ## Reference Examples:
 These examples show valid ALFWorld action-observation style. Use them for command format and task strategy, but prioritize correcting the current trajectory.
 
@@ -135,12 +107,43 @@ Goal Task: Now, based on the task background, task instruction, and reference ex
 *** Expert Encoding Result **** 
 
 Expert Observations:
+(1)locations:
+(2)functions:
 Expert Actions: 
         """
         return query
+
+    def get_ground_truth_expert_prompts(self, history_log, fewshots):
+        scenario = history_log.split("Here is the task:")[-1].strip()
+        query = f"""
+Role: As a correction-focused expert in ALFWorld indoor navigation and manipulation, you encode trajectories from the perspective of a ground-truth helper. Your goal is to preserve the facts needed to diagnose solver mistakes and recover from stuck states in future trials.
+
+Instruction: Given the environment, task, and action trajectories, use an information chunking strategy to encode the trajectory into Expert Observations and Expert Actions.
+Unlike the solver agent, you should emphasize correction-relevant information:
+1. Expert Observations: Summarize only facts grounded in observations. Include (1)locations: where relevant items were found or confirmed absent after search, and (2)functions: usable functions of containers or tools, such as sinkbasin for cleaning, fridge for cooling, microwave for heating, or knife for slicing. If no useful container/tool function is confirmed, output "None".
+2. Expert Actions: Summarize the action trajectory in original execution order, ignoring thought steps. Focus on solver failure signals and corrective actions: repeated actions, invalid actions that produced "Nothing happens", searches that did not progress, state-changing actions, and any ground-truth intervention that helped or failed to help.
+
+Exemplars: There are three exemplars to show the required expert encoding format. Use their output format, but apply the correction-focused criteria above.
+
+{fewshots}
+
+Goal Task: Now, based on the task background, task instruction, reference exemplars, and the current trajectory, give the ground-truth expert encoding result. Keep the exact output schema so it can be parsed later.
+
+*** Input **** 
+
+{scenario}
+
+*** Expert Encoding Result **** 
+
+Expert Observations:
+(1)locations:
+(2)functions:
+Expert Actions: 
+        """
+        return query
+
     # Reflection Prompt
     # 反思指令，用于update local memories
-
     def get_reflection_prompts(self, history_log, is_success, fewshots, local_memories, expert_result):
         locations, functions, expert_actions = self._parser_expert_result(
             expert_result)
@@ -192,6 +195,58 @@ Expert Observations:{expert_observations}
 Your reflection here, please start with: Reflection:
 """
         return query
+
+    def get_ground_truth_reflection_prompts(self, history_log, is_success, fewshots, local_memories, expert_result):
+        locations, functions, expert_actions = self._parser_expert_result(
+            expert_result)
+        expert_observations = f'''(1){locations}(2){functions}'''
+        scenario = history_log.split("Here is the task:")[-1].strip()
+        query = f"""
+Role: As a ground-truth correction expert for ALFWorld tasks, you reflect on trajectories to improve future stuck-state diagnosis and recovery. Your reflection should help a correction agent decide when to intervene and what corrective action to choose.
+
+Instruction: {"The task was completed successfully. Given the environment, task, action trajectory, and expert actions, identify the correction-relevant signals and actions that helped the trajectory make progress or recover. Focus on what a ground-truth helper should remember for future interventions. "
+              if is_success else
+              '''The task was not completed successfully. Given the environment, task, action trajectory, expert observations, expert actions, and past ground-truth reflections, diagnose why the solver or correction process failed and describe a better recovery strategy.
+Consider these correction failure types:
+Stuck Detection Failure: The solver repeated ineffective actions, searched without progress, or ignored observations, but the correction policy did not switch strategy early enough.
+Diagnosis Failure: The correction action targeted the wrong object, receptacle, location, or task subgoal.
+Recovery Failure: The correction action was syntactically valid but did not change the state, did not gather useful information, or did not move toward completing the task.
+Knowledge Failure: The agent lacked or misused environment facts, such as item locations, container state, or tool/container functions.
+'''
+              }
+
+Exemplars: There are {"two" if is_success else "three"} exemplars to help you understand the required reflection format. Use them for style only; your content should focus on ground-truth correction.
+
+{fewshots}
+
+Goal Task: Now, based on the task background, task instruction, reference exemplars, past ground-truth reflections, and the current expert encoding, give a new correction-focused reflection.
+
+*** Input ***
+
+{scenario}
+
+"""
+        if is_success:
+            query += f"""
+Expert Actions: {expert_actions}
+
+"""
+        else:
+            query += f"""
+Expert Actions: {expert_actions}
+Expert Observations:{expert_observations}
+"""
+        if len(local_memories) > 0:
+            query += 'Past Ground-Truth Reflections:\n'
+            for i, m in enumerate(local_memories):
+                query += f'Trial #{i}: {m}\n'
+
+        query += f"""
+*** Reflection Result***
+Your reflection here, please start with: Reflection:
+"""
+        return query
+
     # Environment Summary Prompt
     # 环境总结指令，用于update global memories
 

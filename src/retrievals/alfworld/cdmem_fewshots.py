@@ -51,6 +51,14 @@ class CDMemFewshotBuilder:
             flags=re.IGNORECASE,
         )
 
+    # 去掉agent标签如[solver]对fewshot的影响
+    def _strip_agent_labels(self, text):
+        return re.sub(
+            r"(?m)^(>\s*)\[[^\]]+\]\s*",
+            r"\1",
+            text,
+        )
+
     # def get_inference_fewshots(self, name, env_description , task_description, global_memory, logging_dir):
     #     for i, (k, v) in enumerate(PREFIXES.items()):
     #         if name.startswith(k):
@@ -104,7 +112,7 @@ class CDMemFewshotBuilder:
         if len(examples) != 2:
             import pdb
             pdb.set_trace()
-        return self._normalize_place_actions(self._add_observation_prefix('\n\n'.join(examples)))
+        return self._normalize_place_actions(self._strip_agent_labels(self._add_observation_prefix('\n\n'.join(examples))))
 
     def _ids2example(self, logging_dir, example_idx):
         env_idx, trial_idx = example_idx
@@ -115,16 +123,21 @@ class CDMemFewshotBuilder:
             "Here is the task:")[-1].replace("STATUS: OK", '').replace("#####", '').strip()
         example_log = example_log.replace(
             '## Task Interactive Trajectory:', '').strip()  # 去除prompt标记
-        return self._normalize_place_actions(example_log)
+        return self._normalize_place_actions(self._strip_agent_labels(example_log))
 
     def _default_inference_fewshots(self, name):
         for i, (k, v) in enumerate(PREFIXES.items()):
             if name.startswith(k):
                 examples = [d[f'react_{v}_1'], d[f'react_{v}_0']]
-                return [self._normalize_place_actions(self._add_observation_prefix(ex)) for ex in examples]
+                return [self._normalize_place_actions(self._strip_agent_labels(self._add_observation_prefix(ex))) for ex in examples]
 
     def get_expert_fewshots(self):
         with open("./prompts/expert_few_shot_example.txt", 'r') as f:
+            FEW_SHOT_EXAMPLES = f.read()
+        return FEW_SHOT_EXAMPLES
+
+    def get_ground_truth_expert_fewshots(self):
+        with open("./prompts/ground_truth_expert_few_shot_example.txt", 'r') as f:
             FEW_SHOT_EXAMPLES = f.read()
         return FEW_SHOT_EXAMPLES
 
@@ -134,6 +147,15 @@ class CDMemFewshotBuilder:
                 FEW_SHOT_EXAMPLES = f.read()
         else:
             with open("./prompts/reflection_few_shot_example_fail.txt", 'r') as f:
+                FEW_SHOT_EXAMPLES = f.read()
+        return FEW_SHOT_EXAMPLES
+
+    def get_ground_truth_reflection_fewshots(self, is_success):
+        if is_success:
+            with open("./prompts/ground_truth_reflection_few_shot_example_success.txt", 'r') as f:
+                FEW_SHOT_EXAMPLES = f.read()
+        else:
+            with open("./prompts/ground_truth_reflection_few_shot_example_fail.txt", 'r') as f:
                 FEW_SHOT_EXAMPLES = f.read()
         return FEW_SHOT_EXAMPLES
 
