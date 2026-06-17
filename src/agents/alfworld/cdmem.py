@@ -33,6 +33,7 @@ class CDMemAgent:
         self.max_steps = max_steps
         self.logging_dir = logging_dir
         self.start_trial_num = start_trial_num
+        self.start_env_num = kwargs.get('start_env_num', 0)
         self.env = env()
         self.model = model
         self.llm = llm_wrapper(model)

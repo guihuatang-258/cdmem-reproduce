@@ -1,44 +1,11 @@
 import os
 import sys
+import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from .cdmem import CDMemAgent
-
-
-# system prompt 只保留稳定身份；具体任务规则放到 inference prompt 中。
-SOLVER_SYSTEM_PROMPT = """
-You are a smart agent designed to solve problems.
-"""
-
-GROUND_TRUTH_SYSTEM_PROMPT = """
-You are the ground-truth correction agent in a multi-agent ALFWorld system.
-When invoked, provide concise corrective help for the current task state.
-"""
-
-TASK_DEFINITION_PROMPT = """
-You are now in a household environment called Alfworld, and your tasks include locating objects, heating or cooling items, and other similar activities.
-
-NOTE:
-- You must strictly follow the syntactic structure of the steps
-    - think: <brief private reasoning>
-    - look
-    - inventory
-    - go to (receptacle)
-    - open (receptacle)
-    - close (receptacle)
-    - take (object) from (receptacle)
-    - move (object) to (receptacle)
-    - put (object) in/on (receptacle)
-    - examine (something)
-    - use (object)
-    - heat (object) with (receptacle)
-    - clean (object) with (receptacle)
-    - cool (object) with (receptacle)
-    - slice (object) with (object)
-
-- You must check carefully whether your output command is consistent with the allowed commands above!!! Any output that is not among the commands listed above is not permitted!!!
-"""
+from .cdmem_autogen_system_prompts import CDMEM_AUTOGEN_PROMPT
 
 
 @dataclass
@@ -48,10 +15,10 @@ class CDMemAutoGenMember:
 
     它只保留当前任务真正需要的字段：
     - name/role: 对齐 autogen 里的 Agent 信息
-    - local_memory/global_memory: agent 私有的 CDMem memory
+    - local_memory: agent 私有的 local memory（reflection 链）
+    - global_memory: 团队共用的 global memory（指向同一实例）
     - logging_dir: agent 自己的 memory 日志目录
 
-    short memory 不放在这里，因为 ALFWorld 是单环境实时交互，
     solver 和 ground_truth 必须看到同一条 action-observation 轨迹。
     """
 
@@ -68,6 +35,7 @@ class CDMemAutoGenMember:
         stop=None,
         max_tokens: int = 256,
         system_prompt: Optional[str] = None,
+        max_retries: int = 3,
     ) -> str:
         # 仍然使用当前 CDMem 项目的 llm_wrapper，不走 mas.llm。
         # system prompt 由调用方按阶段显式传入；
@@ -75,7 +43,29 @@ class CDMemAutoGenMember:
         kwargs = dict(stop=stop, max_tokens=max_tokens)
         if system_prompt:
             kwargs["sys_msg"] = system_prompt
-        return llm(user_prompt, **kwargs)
+
+        for attempt in range(max_retries):
+            try:
+                result = llm(user_prompt, **kwargs)
+                if result and len(result.strip()) >= 1:
+                    return result
+                print(
+                    f"⚠️  [{self.name}] empty response, "
+                    f"retry {attempt + 1}/{max_retries}"
+                )
+            except (SystemExit, Exception) as e:
+                # llm_wrapper 在 API 层重试耗尽后会 sys.exit(1)，
+                # 这里拦截 SystemExit/Exception，避免进程直接终止。
+                print(
+                    f"⚠️  [{self.name}] LLM call error, "
+                    f"retry {attempt + 1}/{max_retries}: {e}"
+                )
+
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)  # 1s → 2s → 4s ...
+
+        print(f"❌ [{self.name}] all {max_retries} retries exhausted")
+        return ""
 
 
 class CDMemAutoGenTeam:
@@ -107,9 +97,10 @@ class CDMemAutoGenAgent(CDMemAgent):
     设计约束：
     - env / prompt_builder / fewshot_builder / memory 类沿用原始 CDMem
     - 调度结构对齐 autogen.py: solver 默认行动，ground_truth 只在 solver 卡住时介入
-    - short memory 共享，表示当前 episode 的实时轨迹
-    - local/global memory 按 agent 独立
-    - canonical local/global memory 仍保留，用于兼容原 CDMem logger 和汇总日志
+    - short memory 团队共享，表示当前 episode 的实时轨迹
+    - local memory 按 agent 独立（reflection 是第一人称学习链，视角不同）
+    - global memory 团队共用（env known_obs / task action_guidance 是客观的高层指导）
+    - canonical local memory 仍保留，用于兼容原 CDMem logger 和 global summary 格式
     """
 
     def __init__(
@@ -148,7 +139,7 @@ class CDMemAutoGenAgent(CDMemAgent):
             *args,
             **kwargs,
         )
-        self.local_memory_cls = local_memory  # 每个agent独立的local memory
+        self.local_memory_cls = local_memory  # 用于给每个 agent new 独立的 local memory
         # self.global_memory_cls = global_memory
 
         # agent_memory_root 下保存每个 agent 自己的 local memory 日志。
@@ -214,7 +205,7 @@ class CDMemAutoGenAgent(CDMemAgent):
         )
         return team
 
-    def build_infer_system_prompt(self, agent_name: str) -> str:
+    def build_infer_system_prompt(self, agent_name: str, stuck_reason: str = "") -> str:
         """
         只在推理阶段按需构建 system prompt。
 
@@ -223,8 +214,8 @@ class CDMemAutoGenAgent(CDMemAgent):
         system prompt，也只需要改这里或新增对应 builder。
         """
         if agent_name == "ground_truth":
-            return (GROUND_TRUTH_SYSTEM_PROMPT + "\n" + TASK_DEFINITION_PROMPT).strip()
-        return (SOLVER_SYSTEM_PROMPT + "\n" + TASK_DEFINITION_PROMPT).strip()
+            return (CDMEM_AUTOGEN_PROMPT.ground_truth_system_prompt + "\n" + CDMEM_AUTOGEN_PROMPT.task_definition_prompt_ground_truth).strip()
+        return (CDMEM_AUTOGEN_PROMPT.solver_system_prompt + "\n" + CDMEM_AUTOGEN_PROMPT.task_definition_prompt_solver).strip()
 
     def run_trajectory(self, env_idx, init_ob, to_print=True):
         """
@@ -232,7 +223,7 @@ class CDMemAutoGenAgent(CDMemAgent):
 
         调度方式对齐 autogen.py:
         1. solver 先根据 CDMem prompt 输出 action
-        2. 如果 solver 连续重复同一动作，则调用 ground_truth 重新输出 action
+        2. 如果 solver 卡住了，则调用 ground_truth 重新输出 action
         3. 被选中的 action 执行到环境中
         4. action/observation 写入共享 short memory
 
@@ -243,8 +234,13 @@ class CDMemAutoGenAgent(CDMemAgent):
         """
         cur_step = 0
         turn_idx = 0
-        action_history: List[str] = []
+        action: str = ""  # 当前 action，先声明避免 UnboundLocalError
         active_agent_name = "solver"
+
+        # ground_truth 介入后继续保持，避免 solver 马上又陷入 think loop
+        # 形成 "solver think → ground_truth 覆盖 → solver think → ..." 的死循环
+        # !暂时不启用
+        keep_ground_truth = False
 
         print(init_ob)
 
@@ -257,38 +253,19 @@ class CDMemAutoGenAgent(CDMemAgent):
 
         # think 不计入 cur_step。为了防止模型一直输出 think 导致无限循环，
         # 额外用 turn_idx 限制总 LLM 调用轮数。
-        max_turns = self.max_steps * 2
+        max_turns = self.max_steps * 3
         while cur_step < self.max_steps and turn_idx < max_turns:
-            # 默认由 solver 行动。
-            solver = self.team.get_agent("solver")
-            active_agent = solver
-            active_agent_name = "solver"
-            self.trajectory_agent_names.add(active_agent_name)
-            infer_prompt = self.build_infer_prompt(
-                env_idx, init_ob, active_agent_name)
+            # ── 决定谁来行动 ──
+            # keep_ground_truth: 上轮 ground_truth 介入后仍没打破僵局（think 或
+            # Nothing happens），继续用 ground_truth，避免 solver 马上又陷入 think loop
+            is_stuck_1, stuck_reason = self._solver_stuck_1()
+            use_ground_truth = is_stuck_1 or keep_ground_truth
 
-            action = active_agent.response(
-                self.llm,
-                infer_prompt,
-                stop=["\n"],
-                system_prompt=self.build_infer_system_prompt(
-                    active_agent_name),
-            ).strip()
-            # 格式化为规范化action
-            action = self.env.action_parser(action)
-            action = self.normalize_place_action(action)
-            if not action:
-                action = "think: I need to choose a valid next action."
-
-            # autogen.py 的核心切换逻辑：
-            # 如果 solver 的当前 action 和前两步完全一样，认为它陷入重复循环，
-            # 这一步改由 ground_truth 给出替代 action。
-            if self._solver_stuck(action, action_history):
+            if use_ground_truth:
                 active_agent_name = "ground_truth"
                 self.trajectory_agent_names.add(active_agent_name)
                 active_agent = self.team.get_agent(active_agent_name)
-                stuck_context = self.build_stuck_context(
-                    action, action_history)
+                stuck_context = self.build_stuck_context(action)
                 infer_prompt = self.build_infer_prompt(
                     env_idx,
                     init_ob,
@@ -306,9 +283,60 @@ class CDMemAutoGenAgent(CDMemAgent):
                 action = self.normalize_place_action(action)
                 if not action:
                     action = "think: I need to choose a valid next action."
+            else:
+                # 由 solver 行动。
+                solver = self.team.get_agent("solver")
+                active_agent = solver
+                active_agent_name = "solver"
+                self.trajectory_agent_names.add(active_agent_name)
+                infer_prompt = self.build_infer_prompt(
+                    env_idx, init_ob, active_agent_name)
+
+                action = active_agent.response(
+                    self.llm,
+                    infer_prompt,
+                    stop=["\n"],
+                    system_prompt=self.build_infer_system_prompt(
+                        active_agent_name),
+                ).strip()
+                # 格式化为规范化action
+                action = self.env.action_parser(action)
+                action = self.normalize_place_action(action)
+                if not action:
+                    action = "think: I need to choose a valid next action."
+
+            # ── solver 路径的兜底检测 ──
+            # 只有在 keep_ground_truth=False 时才需要 _solver_stuck_2，
+            # 因为 keep_ground_truth=True 时已经直接用 ground_truth 了
+            if not keep_ground_truth:
+                is_stuck_2, stuck_reason = self._solver_stuck_2(
+                    action, active_agent_name)
+                if is_stuck_2 and not is_stuck_1:
+                    active_agent_name = "ground_truth"
+                    self.trajectory_agent_names.add(active_agent_name)
+                    active_agent = self.team.get_agent(active_agent_name)
+                    stuck_context = self.build_stuck_context(action)
+                    infer_prompt = self.build_infer_prompt(
+                        env_idx,
+                        init_ob,
+                        active_agent_name,
+                        stuck_context=stuck_context,
+                    )
+                    action = active_agent.response(
+                        self.llm,
+                        infer_prompt,
+                        stop=["\n"],
+                        system_prompt=self.build_infer_system_prompt(
+                            active_agent_name),
+                    ).strip()
+                    action = self.env.action_parser(action)
+                    action = self.normalize_place_action(action)
+                    if not action:
+                        action = "think: I need to choose a valid next action."
 
             # 共享 short memory 仍保持原始 CDMem 的 action/observation 结构；
             # 同时 agent_short_history 额外记录 action 来自哪个 agent，供日志展示。
+            # 这里更新了agent_short_history
             self._add_short_memory("action", action, active_agent_name)
             observation, reward, done, exhausted, info = self.env.step(action)
             observation_text = "Observation: " + observation
@@ -316,26 +344,38 @@ class CDMemAutoGenAgent(CDMemAgent):
                 "observation", observation_text, active_agent_name)
 
             if to_print:
-                print(f"[{active_agent_name}] Action: {action}")
-                print(f"Observation: {observation}")
+                print(f"🏃[{active_agent_name}] Action: {action}")
+                print(f"🌍Observation: {observation}")
                 sys.stdout.flush()
 
-            action_history.append(action)
             turn_idx += 1
+
+            # ── 决定下轮是否继续用 ground_truth ──
+            # 如果 ground_truth 当前这步也没打破僵局（Nothing happens），
+            # 下轮继续用 ground_truth，避免还给 solver 后又陷入 think loop。
+            # ?如果 ground_truth 自己也 stuck 了怎么办
+            # if active_agent_name == "ground_truth":
+            #     # is_gt_stuck, _ = self._ground_truth_stuck()
+            #     # if is_gt_stuck:
+            #     #     keep_ground_truth = False
+            #     # else:
+            #     keep_ground_truth = "Nothing happens" in observation
+            # else:
+            #     keep_ground_truth = False
 
             # done/exhausted 时构造两份 history：
             # - memory_history_log: 原始格式，用于后续 memory 更新
             # - log_history_log: 带 agent 名，用于 trial_*.log 可读性
             if done:
                 memory_history_log = self.build_infer_prompt(
-                    env_idx, init_ob, active_agent_name)
+                    env_idx, init_ob, "solver")
                 log_history_log = self.build_labeled_history_log(
                     memory_history_log)
                 return log_history_log, memory_history_log, True
             # * 暂时用不上，因为会和MAS冲突
             elif exhausted:
                 memory_history_log = self.build_infer_prompt(
-                    env_idx, init_ob, active_agent_name)
+                    env_idx, init_ob, "solver")
                 log_history_log = self.build_labeled_history_log(
                     memory_history_log)
                 return log_history_log, memory_history_log, False
@@ -345,33 +385,126 @@ class CDMemAutoGenAgent(CDMemAgent):
             cur_step += 1
 
         # 达到 max_steps 或 max_turns 也算失败返回。
+        # memory_history_log 始终用 solver 格式（原始 CDMem），供后续 memory 更新使用。
         memory_history_log = self.build_infer_prompt(
-            env_idx, init_ob, active_agent_name)
+            env_idx, init_ob, "solver")
         log_history_log = self.build_labeled_history_log(memory_history_log)
         # log_history_log是带agent name的，用于trial log展示；
         # memory_history_log是原始格式，用于后续 memory 更新
         return log_history_log, memory_history_log, False
 
-    def _solver_stuck(self, current_action: str, action_history: List[str]) -> bool:
-        """判断 solver 是否陷入重复动作循环。"""
-        return (
-            len(action_history) >= 2
-            and current_action == action_history[-1]
-            and current_action == action_history[-2]
-        )
+    def _solver_stuck_1(self) -> tuple:
+        """检测连续 "Nothing happens"（真实时间线，不按 agent 过滤）。
+
+        避免 ground_truth 介入后 solver 的旧 "Nothing happens" 持续触发误判：
+          [solver: Nothing][solver: Nothing][ground_truth: arrives]...[solver: OK]
+          旧: solver_obs[-2:]=[Nothing,Nothing] → 误判
+          新: all_obs[-2:]=[arrives, OK] → 不触发
+        """
+        all_obs = [item["value"] for item in self.agent_short_history
+                   if item["label"] == "observation"]
+        if (len(all_obs) >= 2
+                and "Nothing happens" in all_obs[-1]
+                and "Nothing happens" in all_obs[-2]):
+            return True, "nothing happens"
+        return False, ""
+
+    def _solver_stuck_2(
+        self,
+        current_action: str,
+        current_agent_name: str = "",
+    ) -> tuple:
+        """
+        判断当前 agent 是否陷入僵局，需要 ground_truth 介入。
+
+        触发条件（满足任一即介入）：
+        1. 同 agent 重复：当前 agent 的 action 与自己上一次的 action 完全相同
+        2. 跨步重复：当前 action 与上一步 action 完全相同（无论 agent 来源）
+        3. 连续空想：当前及前两步（真实时间线，不按 agent 过滤）都是 think
+        """
+        all_actions = [
+            h for h in self.agent_short_history if h["label"] == "action"
+        ]
+
+        # 条件 1：同一 agent 重复自己上一次的 action
+        # （例如 ground_truth 连续两次给出相同纠正也视为 stuck）
+        # same_agent_actions = [
+        #     h["value"] for h in all_actions
+        #     if h["agent_name"] == current_agent_name
+        # ]
+        # if (len(same_agent_actions) >= 1
+        #         and current_action == same_agent_actions[-1]):
+        #     return True, "repeat_same_agent"
+
+        # 条件 2：当前 action 与上一步完全相同（无论 agent 来源）
+        if (len(all_actions) >= 1
+                and current_action == all_actions[-1]["value"]):
+            return True, "repeat"
+
+        # 条件 3：连续3次 think 检测（无论 agent 来源）。
+        recent_actions = [a["value"] for a in all_actions[-2:]]
+        if (current_action.startswith("think:")
+                and len(recent_actions) >= 2
+                and all(a.startswith("think:") for a in recent_actions[-2:])):
+            return True, "think"
+
+        return False, ""
 
     # * 暂时不用
-    def build_stuck_context(self, current_action: str, action_history: List[str]) -> str:
-        recent_actions = action_history[-3:] + [current_action]
-        recent_action_text = "\n".join(
-            f"{idx + 1}. {action}" for idx, action in enumerate(recent_actions)
-        )
-        return f"""The solver is about to repeat an action that already appears in the recent action history.
+    def _ground_truth_stuck(self) -> tuple:
+        """
+        判断 ground_truth 自身是否也陷入僵局（需要交还 solver）。
 
-Recent actions:
+        注意：调用时 agent_short_history 已包含当前 action/observation，
+        所以 gt_actions[-1] 即当前 action，重复检测要跟 [-2] 比。
+
+        触发条件（满足任一即 stuck）：
+        1. 重复自己：当前 action == ground_truth 上一次 action
+        2. 违规 think：ground_truth 输出了 think（system prompt 已禁止）
+        3. 连续 Nothing happens：ground_truth 最近两步 obs 都是 Nothing happens
+        """
+        gt_actions = [h["value"] for h in self.agent_short_history
+                      if h["label"] == "action"
+                      and h["agent_name"] == "ground_truth"]
+        gt_obs = [h["value"] for h in self.agent_short_history
+                  if h["label"] == "observation"
+                  and h["agent_name"] == "ground_truth"]
+
+        # 条件 1：ground_truth 重复自己上一次的 action
+        if len(gt_actions) >= 2 and gt_actions[-1] == gt_actions[-2]:
+            return True, "gt_repeat_self"
+
+        # 条件 2：ground_truth 输出了 think（本不该输出）
+        if len(gt_actions) >= 1 and gt_actions[-1].startswith("think:"):
+            return True, "gt_think"
+
+        # 条件 3：ground_truth 连续两次 "Nothing happens"
+        if (len(gt_obs) >= 2
+                and "Nothing happens" in gt_obs[-1]
+                and "Nothing happens" in gt_obs[-2]):
+            return True, "gt_nothing_happens"
+
+        return False, ""
+
+    # 详细说明stuck的上下文
+    def build_stuck_context(
+        self,
+        current_action: str,
+    ) -> str:
+        all_actions = [
+            h for h in self.agent_short_history if h["label"] == "action"
+        ]
+        recent_actions = all_actions[-3:] + [
+            {"value": current_action, "agent_name": "（当前）"}]
+        recent_action_text = "\n".join(
+            f"{idx + 1}. [{h['agent_name']}] {h['value']}"
+            for idx, h in enumerate(recent_actions)
+        )
+        return f"""
+### Recent actions (with agent source):
 {recent_action_text}
 
-Stuck action to avoid:
+### Stuck action to avoid:
 {current_action}"""
 
     # 更新short memory（trajectory）
@@ -425,10 +558,10 @@ Stuck action to avoid:
         solver 仍使用原始 CDMem inference prompt。
         ground_truth 使用 CDMemPromptBuilder 新增的 get_ground_truth_inference_prompts。
 
-        两者 memory 来源都按 agent 区分：
-        - short memory: 团队共享 self.short_memory
-        - local memory: 当前 agent 私有 local_memory
-        - global memory: 当前 agent 私有 global_memory
+        memory 来源：
+        - short memory: 团队共享 self.short_memory（当前 episode 的实时轨迹）
+        - local memory: 当前 agent 私有 local_memory（按 env_idx 索引的 reflection 链）
+        - global memory: 团队共用 self.global_memory（env known_obs + task action_guidance）
 
         fewshot builder 仍然用 self.logging_dir 读取 trial_*.log，因为完整轨迹
         只写在主 trial log 中；agent.logging_dir 只保存各自的 memory json。
@@ -485,7 +618,7 @@ Stuck action to avoid:
         """获取 global memory；团队共用同一份 self.global_memory。"""
         return self.global_memory
 
-    def update_local_memory(self, history_log, is_success, env_idx):
+    def update_local_memory(self, history_log, memory_history_log, is_success, env_idx):
         """
         更新 local memory。
 
@@ -503,13 +636,14 @@ Stuck action to avoid:
         combined_reflections = []
         for agent_name, agent in self.team.agents_team.items():
             # 仅每个参与过本条 trajectory 的 agent 都单独做 expert encoding，
-            # if agent_name not in self.trajectory_agent_names:
-            #     continue
+            if agent_name not in self.trajectory_agent_names:
+                continue
 
-            # 但 memory 更新阶段不注入 agent system prompt，避免角色设定污染
-            # 原始 CDMem 的 expert/reflection 记忆维护流程。
+            # memory 更新阶段不注入 agent system prompt，避免多余信息污染
+            # 分agent生成expert result
             expert_prompt = self.build_expert_prompt_for_agent(
                 history_log,
+                memory_history_log,
                 agent_name,
             )
             expert_result = agent.response(
@@ -517,12 +651,13 @@ Stuck action to avoid:
                 expert_prompt,
                 max_tokens=512,
             )
-            print(f"[DEBUG] {agent_name} expert_result: {expert_result}")
+            print(f"⚠️[DEBUG] {agent_name} expert_result: {expert_result}")
 
-            # 每个 agent 用自己的 expert_result 和 local_memory 参与 reflection prompt，
+            # 每个 agent 用自己的 expert_result 和自己的 local_memory 参与 reflection prompt，
             # 所以 solver/ground_truth 会形成不同的历史反思链。
             reflection_prompt = self.build_reflection_prompt_for_agent(
                 history_log,
+                memory_history_log,
                 is_success,
                 expert_result,
                 env_idx,
@@ -534,23 +669,29 @@ Stuck action to avoid:
                 max_tokens=512,
             )
             print(
-                f"[DEBUG] {agent_name} reflection_result: {reflection_result}")
+                f"⚠️[DEBUG] {agent_name} reflection_result: {reflection_result}")
+
+            # 解析为结构化expert_trajectory，并写入 agent 私有 local memory
             expert_trajectory = self.process_after_reflection(
                 expert_result,
                 reflection_result,
                 history_log,
                 is_success,
             )
-            # 写入 agent 私有 local memory。
+            # 私有 local memory。
             agent.local_memory.add(env_idx, expert_trajectory)
             agent_trajectories[agent_name] = expert_trajectory
+
+            # 在汇总的 local memory 中保存每个 agent 的reflection
             combined_reflections.append(
-                f"{agent_name} ({agent.role}): {reflection_result.strip()}"
+                f"({agent_name}): {reflection_result.strip()}"
             )
 
-        # canonical trajectory 用于主 local_memory_trial_*.json 和主 global memory。
-        # 它只是兼容原 CDMem 单 agent 日志/检索格式的团队汇总层；
-        # 真正 per-agent memory 已经写入 agent.local_memory。
+        # canonical trajectory 用于主 local_memory_trial_*.json 和共享 global memory。
+        # 它的 env/task/location/function/action 取自 solver，
+        # reflection 取两个 agent 合并版。
+        # global memory 的 env 知识总结依赖其中的 function 字段，
+        # task 知识总结依赖 action + reflection 字段。
         canonical_trajectory = self._build_canonical_trajectory(
             agent_trajectories,
             combined_reflections,
@@ -558,12 +699,12 @@ Stuck action to avoid:
             is_success,
         )
         canonical_trajectory["agent_reflections"] = agent_trajectories
+        # 兼容原结构，保存合并后agent的local memory
         self.local_memory.add(env_idx, canonical_trajectory)
         print(
-            f"[DEBUG] canonical local memory={self.local_memory.recall(env_idx)}")
+            f"⚠️[DEBUG] canonical local memory={self.local_memory.recall(env_idx)}")
         return canonical_trajectory
 
-    # TODO 可能考虑删掉
     def _build_canonical_trajectory(
         self,
         agent_trajectories,
@@ -593,8 +734,13 @@ Stuck action to avoid:
         return canonical_trajectory
 
     # 分agent的expert prompt
-    def build_expert_prompt_for_agent(self, history_log, agent_name):
-        """构建某个 agent 专属的 expert encoding prompt。"""
+    def build_expert_prompt_for_agent(self, history_log, memory_history_log, agent_name):
+        """构建某个 agent 专属的 expert encoding prompt。
+
+        - solver: 用 memory_history_log（无 agent 标签的原始 CDMem 格式）
+        - ground_truth: 用 history_log（带 [solver]/[ground_truth] 标签的版本），
+          这样纠正专家能看出哪些 action 是 solver 自己走的、哪些是 ground_truth 介入的。
+        """
         if agent_name == "ground_truth" and hasattr(
             self.prompt_builder,
             "get_ground_truth_expert_prompts",
@@ -604,18 +750,24 @@ Stuck action to avoid:
                 history_log,
                 fewshots,
             )
-        return self.build_expert_prompt(history_log)
+        return self.build_expert_prompt(memory_history_log)
 
     # 分agent的reflection prompt
     def build_reflection_prompt_for_agent(
         self,
         history_log,
+        memory_history_log,
         is_success,
         expert_result,
         env_idx,
         agent_name,
     ):
-        """构建某个 agent 专属的 reflection prompt。"""
+        """构建某个 agent 专属的 reflection prompt。
+
+        - solver: 用 memory_history_log（无 agent 标签的原始 CDMem 格式）
+        - ground_truth: 用 history_log（带 [solver]/[ground_truth] 标签的版本），
+          让纠正反思能区分 solver 自己的动作和 ground_truth 的介入。
+        """
         # 根据env编号来召回
         local_memories = self._recall_agent_local_memories(agent_name, env_idx)
         if len(local_memories) > 3:
@@ -636,7 +788,7 @@ Stuck action to avoid:
             )
         fewshots = self.fewshot_builder.get_reflection_fewshots(is_success)
         return self.prompt_builder.get_reflection_prompts(
-            history_log,
+            memory_history_log,
             is_success,
             fewshots,
             local_memories,
@@ -683,9 +835,8 @@ Stuck action to avoid:
         trial -> env -> trajectory -> local memory -> global memory -> log。
 
         额外增加：
-        - per-agent local memory log
-        - per-agent global memory update/log
-        - trial log 使用带 agent 名称的 history
+        - per-agent local memory log（各自的 reflection 链）
+        - trial log 使用带 agent 名称的 history（方便人类阅读）
         """
         for trial_idx in range(self.start_trial_num, self.num_trials):
             self.logger.log_world_start(trial_idx)
@@ -695,6 +846,15 @@ Stuck action to avoid:
             for env_idx in range(self.num_envs):
                 init_ob, info = self.env.reset()
                 print(f"{env_idx} using {self.env.name}")
+
+                # 跳过 start_env_num 之前的环境
+                if env_idx < self.start_env_num:
+                    print(
+                        f"  [skip] env_idx={env_idx} < start_env_num={self.start_env_num}")
+                    self.logger.log_trial_content(
+                        "[skipped]", False, trial_idx, env_idx)
+                    continue
+
                 if self.local_memory.is_success(env_idx):
                     # canonical memory 里已经成功的环境沿用原 CDMem 行为：跳过。
                     num_successes += 1
@@ -722,7 +882,8 @@ Stuck action to avoid:
                     env_idx,
                 )
                 expert_trajectory = self.update_local_memory(
-                    # 更新 memory 用原始 CDMem 格式，避免 agent 标签干扰解析和总结。
+                    # 如果是solver则用无标签版本，ground truth则用带标签版本
+                    history_log,
                     memory_history_log,
                     is_success,
                     env_idx,
@@ -744,41 +905,3 @@ Stuck action to avoid:
                 num_additional_successes,
             )
             self.env.reload()
-
-    # * 暂时用不上
-    def _action_system_message(self) -> str:
-        """
-        可选的 ALFWorld action 格式约束 system prompt。
-
-        当前 _build_team() 里 action_contract 设为空，表示先保持 autogen 原始
-        system prompt 设定。如果后续希望强约束动作格式，可以把 _build_team()
-        中的 action_contract 改回 self._action_system_message()。
-        """
-        return """
-You are controlling an ALFWorld TextWorld agent. You need to output your thinking/reason/plan to solve the task, and select a correct action to execute.
-At each turn, output exactly ONE line and do not output observations, explanations, markdown, or multiple actions.
-
-Available action templates:
-- think: <brief private reasoning>
-- look: look around your current location
-- inventory: check your current inventory
-- go to (receptacle): move to a receptacle
-- open (receptacle): open a receptacle
-- close (receptacle): close a receptacle
-- take (object) from (receptacle): take an object from a receptacle
-- move (object) to (receptacle): place an object in or on a receptacle
-- put (object) in/on (receptacle): place an object in or on a receptacle
-- examine (something): examine a receptacle or an object
-- use (object): use an object
-- heat (object) with (receptacle): heat an object using a receptacle
-- clean (object) with (receptacle): clean an object using a receptacle
-- cool (object) with (receptacle): cool an object using a receptacle
-- slice (object) with (object): slice an object using a sharp object
-
-Note: Use exact object and receptacle names with their numbers from observations, such as "apple 1", "drawer 2", or "sinkbasin 1". Do not invent object names, receptacle names, ids, or environment feedback.
-Please note, the task interactive trajectory is realtime feedback from environment. You are required to interact with the environment to complete the task.
-So, you need to output your thinking or a valid action, and the action will be executed in the environment.
-- If you output your thinking, the environment will simple respond with "OK".
-- If you output a valid action, the environment will return a new observation.
-- If you meet operation failure, the environment will return "Nothing happens", which means the current observation doesn't match the current action. Please rethink and choose a different action.
-""".strip()

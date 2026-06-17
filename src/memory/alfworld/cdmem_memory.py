@@ -286,7 +286,7 @@ class Vectorizor:
             settings=Settings(allow_reset=True))
         self.chroma_client.reset()
 
-    def get_embedding(self, text, model="text-embedding-3-small"):
+    def get_embedding(self, text, model="openai/text-embedding-3-small"):
         return self.embed_client.embeddings.create(input=text, model=model).data[0].embedding
 
     def create_collection(self, name):

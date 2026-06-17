@@ -27,6 +27,8 @@ def get_args():
                         help="If resume, the logging directory", default="")
     parser.add_argument("--start_trial_num", type=int,
                         help="If resume, the start trial num", default=0)
+    parser.add_argument("--start_env_num", type=int,
+                        help="Start from this env index (skip earlier envs)", default=0)
     parser.add_argument(
         "--model", type=str, help="The model to use. One of `gpt-4`, `gpt-3.5-turbo`, or `text-davinci-003")
     parser.add_argument("--agent", type=str,
@@ -67,6 +69,7 @@ def main(args):
         logging_dir=logging_dir,  # 日志目录
         model=args.model,  # LLM模型型号
         start_trial_num=args.start_trial_num,  # 如果是resume，从start_trial_num开始
+        start_env_num=args.start_env_num,  # 从指定环境编号开始跑
         env=ENV[args.env],  # 选择环境（alfworld或scienceworld）
         llm_wrapper=LLM_WRAPPER[model_prefix],  # LLM包装器
         short_memory=SHORT_MEMORY[args.env][args.agent],  # 短期记忆

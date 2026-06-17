@@ -55,13 +55,7 @@ These examples show valid ALFWorld action-observation style. Use them for comman
 
 {fewshots}
 """
-# 先不加stuck_context
-#         if stuck_context:
-#             query += f"""
 
-# ## Solver Stuck Context:
-# {stuck_context}
-# """
         if known_obs_history:
             query += f"\nFunctions of Containers: {known_obs_history}"
         if action_guidance_history:
@@ -77,9 +71,14 @@ These examples show valid ALFWorld action-observation style. Use them for comman
 
 ## Shared Task Interactive Trajectory:
 {short_memories}
-
+"""
+        if stuck_context:
+            query += f"""
+## Stuck Context (why you were called): {stuck_context}
+"""
+        query += """
 ## Your Turn:
-Diagnose the solver's stuck point and output the single best next line.
+Diagnose the stuck point and output the single best next line.
 """
         return query
     # Expert Encoding
