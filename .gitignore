@@ -168,6 +168,7 @@ data/
 # env variables
 env_variables.sh
 env.sh
+scripts/set_api.sh
 # test files
 test.py
 # ide

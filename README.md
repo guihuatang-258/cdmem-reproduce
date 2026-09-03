@@ -41,7 +41,12 @@ Follow these steps to set up the project:
    ```
 
 6. **Configure OpenAI Key**:
-   Edit the `scripts/set_api.sh` file to include your OpenAI API key.
+   Copy the tracked template to the ignored local configuration file, then add
+   your OpenAI or OpenAI-compatible credentials:
+   ```bash
+   cp scripts/set_api.example.sh scripts/set_api.sh
+   # Edit scripts/set_api.sh locally. Never commit this file.
+   ```
 
 ## Running AlfWorld Experiments
 

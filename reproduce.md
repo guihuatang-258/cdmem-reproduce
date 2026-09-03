@@ -26,7 +26,9 @@ pip install -r requirements.txt
 cd data
 git clone https://github.com/alfworld/alfworld.git # 克隆alfworld仓库，获取config文件
 
-sh env.sh # 配置环境变量，包括ALFWORLD_DATA, OPENAI_API_KEY, OPENAI_API_BASE_URL
+# 从仓库根目录复制环境变量模板，并在本地填写 ALFWORLD_DATA
+cp ../env_example.sh ../env.sh
+source ../env.sh
 alfworld-download # 下载alfworld游戏数据
 ```
 
